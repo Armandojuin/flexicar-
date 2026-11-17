@@ -1066,7 +1066,7 @@ function resizeSpots(list, dep, wid, keep){
         const [ax, ay] = axisOf(g[0].rot);
         g.sort((a, b) => (a.x * ax + a.y * ay) - (b.x * ax + b.y * ay));
         const pr = g.map(s => s.x * ax + s.y * ay), mid = (pr[0] + pr[pr.length - 1]) / 2;
-        let pos = mid - g.reduce((t, s) => t + s.h, 0) / 2;
+        let pos = r2(mid - g.reduce((t, s) => t + s.h, 0) / 2);
         g.forEach((s, i) => { const t = pos + s.h / 2 - pr[i]; s.x = r2(s.x + t * ax); s.y = r2(s.y + t * ay); pos += s.h; });
         const [px, py] = depthOf(g[0].rot), dp = g.map(s => s.x * px + s.y * py), mean = dp.reduce((a, b) => a + b, 0) / dp.length;
         g.forEach((s, i) => { const t = mean - dp[i]; s.x = r2(s.x + t * px); s.y = r2(s.y + t * py); });
