@@ -48,6 +48,25 @@ button{cursor:pointer}
 .brand span{color:var(--muted);font-size:12px;max-width:22ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .sep{width:1px;height:22px;background:var(--line)}
+.addbar{display:flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:12px;background:var(--bg);border:1px solid var(--line)}
+.add{--c:var(--muted);display:flex;align-items:center;gap:9px;border:1px solid transparent;background:transparent;border-radius:9px;padding:4px 12px 4px 4px;text-align:left;transition:background .15s,border-color .15s,transform .15s}
+.add:hover{background:var(--panel);border-color:var(--line);transform:translateY(-1px)}
+.add:active{transform:translateY(0)}
+.add .ico{position:relative;width:36px;height:36px;border-radius:9px;display:grid;place-items:center;background:color-mix(in srgb,var(--c) 17%,transparent);color:var(--c)}
+.add .ico svg{width:22px;height:22px}
+.add .ico::after{content:"+";position:absolute;right:-5px;top:-5px;width:16px;height:16px;border-radius:50%;background:var(--c);color:var(--panel);font:700 13px/16px var(--font-ui);text-align:center;box-shadow:0 0 0 2px var(--bg)}
+.add .lbl b{display:block;font:600 13.5px/1.15 var(--font-head)}
+.add .lbl small{display:block;font-size:11px;color:var(--muted);white-space:nowrap}
+.add-car{--c:var(--accent);background:var(--accent-soft)}
+.add-row{--c:var(--stall)}
+.add-zone{--c:var(--info)}
+.add-text{--c:var(--muted)}
+@media (max-width:600px){
+  .addbar{display:grid;grid-template-columns:repeat(4,1fr);width:100%}
+  .add{flex-direction:column;gap:5px;padding:7px 2px 6px}
+  .add .lbl b{text-align:center}
+  .add .lbl small{display:none}
+}
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:6px 10px;font-weight:500;font-size:13px;white-space:nowrap}
 .btn:hover{border-color:var(--muted)}
 .btn:disabled{opacity:.4;cursor:default}
@@ -159,10 +178,24 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 <header class="bar">
   <div class="brand"><h1>Plano de Exposición</h1><span id="planName"></span></div>
   <div class="tools">
-    <button class="btn primary" id="bAddCar" title="Añadir un coche al stock">+ Coche</button>
-    <button class="btn" id="bRow" title="Dibujar una fila de plazas">+ Fila de plazas</button>
-    <button class="btn" id="bZone" title="Añadir una zona (oficina, entrada, taller…)">+ Zona</button>
-    <button class="btn" id="bText" title="Añadir un rótulo">+ Rótulo</button>
+    <div class="addbar" role="group" aria-label="Añadir">
+      <button class="add add-car" id="bAddCar" title="Añadir un coche al stock">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"><path d="M2.5 15.5v-3.2l2.3-4.6c.3-.5.8-.8 1.4-.8h9.1c.5 0 1 .2 1.3.6l3 3.6 1.4.4c.4.1.6.4.6.8v3.2h-1.6"/><path d="M8.6 15.5h6.8"/><path d="M5.2 11h13.4"/><circle cx="6.6" cy="15.8" r="1.9"/><circle cx="17.4" cy="15.8" r="1.9"/></svg></span>
+        <span class="lbl"><b>Coche</b><small>al stock</small></span>
+      </button>
+      <button class="add add-row" id="bRow" title="Dibujar una fila de plazas">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 4v15h18V4M9 4v15M15 4v15"/></svg></span>
+        <span class="lbl"><b>Plazas</b><small>una fila</small></span>
+      </button>
+      <button class="add add-zone" id="bZone" title="Añadir una zona (oficina, entrada, taller…)">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5" fill="currentColor" fill-opacity=".18"/><path d="M8 19v-5h4v5"/><path d="M14.5 9h3"/></svg></span>
+        <span class="lbl"><b>Zona</b><small>oficina, taller…</small></span>
+      </button>
+      <button class="add add-text" id="bText" title="Añadir un rótulo">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 6.5V5h14v1.5M12 5v14M9 19h6"/></svg></span>
+        <span class="lbl"><b>Rótulo</b><small>texto</small></span>
+      </button>
+    </div>
     <span class="sep"></span>
     <button class="btn" id="bSort" title="Colocar automáticamente los coches en las plazas">Ordenar exposición</button>
     <label class="inline" for="colorBy">Color
