@@ -743,17 +743,19 @@ function renderPlan(opts = {}){
   ]);
   svg.append(defs);
   // Recinto
+  // mientras se arrastra el recinto, se dibuja en su posición provisional
+  const F = drag && drag.type === 'lot' && drag.f ? drag.f : {x:0, y:0, w:S.W, h:S.H};
   const lot = E('g', {'data-bg':'1'}, [
-    E('rect', {x:0, y:0, width:S.W, height:S.H, fill:C.floor}),
-    S.grid ? E('rect', {x:0, y:0, width:S.W, height:S.H, fill:'url(#g5)'}) : null,
-    E('rect', {x:0, y:0, width:S.W, height:S.H, fill:'none', stroke:C.edge, 'stroke-width':.18})
+    E('rect', {x:F.x, y:F.y, width:F.w, height:F.h, fill:C.floor}),
+    S.grid ? E('rect', {x:F.x, y:F.y, width:F.w, height:F.h, fill:'url(#g5)'}) : null,
+    E('rect', {x:F.x, y:F.y, width:F.w, height:F.h, fill:'none', stroke:C.edge, 'stroke-width':.18})
   ]);
   svg.append(lot);
   // Cotas y escala
   const dimA = {fill:C.text, 'font-size':.7, 'font-family':font, 'font-weight':500};
-  svg.append(T(S.W / 2, -1, `${nf.format(S.W)} m`, dimA));
-  svg.append(E('g', {transform:`translate(${-1} ${S.H / 2}) rotate(-90)`}, [T(0, 0, `${nf.format(S.H)} m`, dimA)]));
-  svg.append(E('g', {transform:`translate(0 ${S.H + 1.2})`}, [
+  svg.append(T(F.x + F.w / 2, F.y - 1, `${nf.format(r2(F.w))} m`, dimA));
+  svg.append(E('g', {transform:`translate(${F.x - 1} ${F.y + F.h / 2}) rotate(-90)`}, [T(0, 0, `${nf.format(r2(F.h))} m`, dimA)]));
+  svg.append(E('g', {transform:`translate(${F.x} ${F.y + F.h + 1.2})`}, [
     E('path', {d:'M0 -.25V.25M0 0H5M5 -.25V.25M2.5 -.15V.15', stroke:C.text, 'stroke-width':.07, fill:'none'}),
     T(6.2, 0, '5 m', Object.assign({}, dimA, {'font-size':.55, 'text-anchor':'start'}))
   ]));
@@ -823,7 +825,18 @@ function renderPlan(opts = {}){
       layers.text.append(g);
     }
   }
-  svg.append(layers.zone, layers.spot, layers.car, layers.text, layers.over);
+  svg.append(layers.zone, layers.spot, layers.car, layers.text);
+  // borde del recinto: arrastrarlo mueve el recinto; las esquinas cambian su tamaño
+  if (!opts.clean) {
+    const hs = Math.max(.5, Math.min(1.2, view.w / 70));
+    const ctl = E('g', {class:'lotctl'}, [
+      E('rect', {x:F.x, y:F.y, width:F.w, height:F.h, fill:'none', stroke:'transparent', 'stroke-width':hs * 1.1, 'pointer-events':'stroke', 'data-lot':'move', style:'cursor:move'}, [E('title', {}, [document.createTextNode('Arrastra el borde para mover el recinto')])]),
+      ...[['nw', F.x, F.y, 'nwse'], ['ne', F.x + F.w, F.y, 'nesw'], ['sw', F.x, F.y + F.h, 'nesw'], ['se', F.x + F.w, F.y + F.h, 'nwse']].map(([k, x, y, cur]) =>
+        E('rect', {x:x - hs / 2, y:y - hs / 2, width:hs, height:hs, rx:hs * .2, fill:C.floor, stroke:C.edge, 'stroke-width':hs * .14, 'data-lot':k, style:`cursor:${cur}-resize`}, [E('title', {}, [document.createTextNode('Arrastra para cambiar el tamaño del recinto')])]))
+    ]);
+    svg.append(ctl);
+  }
+  svg.append(layers.over);
   overlayLayer = layers.over;
   setViewBox();
 }
@@ -946,7 +959,7 @@ function renderProps(){
            field(S, 'snap', 'Imán', 'select', {options:[{v:0, n:'Sin imán'}, {v:0.1, n:'10 cm'}, {v:0.25, n:'25 cm'}, {v:0.5, n:'50 cm'}, {v:1, n:'1 m'}], after:o => { o.snap = +o.snap; }}),
            field(S, 'grid', 'Cuadrícula', 'checkbox'))));
     const k = document.createElement('div'); k.className = 'keys';
-    [['Clic', 'seleccionar'], ['Arrastrar en el fondo', 'recuadro para seleccionar varios'], ['Rueda', 'desplazar el plano (Mayús: hacia los lados)'], ['Ctrl + rueda', 'acercar o alejar'], ['Botón central o derecho', 'arrastrar para mover la vista'], ['Mayús + clic', 'añadir a la selección'], ['Doble clic en plaza', 'seleccionar su fila entera'], ['Arrastrar', 'mover (en una plaza se encaja; sobre otro coche, se intercambian)'], ['R', 'girar 90°'], ['Flechas', 'mover 10 cm (Mayús: 1 m)'], ['Supr', 'retirar del plano / borrar'], ['Ctrl + D', 'duplicar'], ['Ctrl + Z', 'deshacer']].forEach(([a, b]) => { const x = document.createElement('kbd'); x.textContent = a; const y = document.createElement('span'); y.textContent = b; k.append(x, y); });
+    [['Clic', 'seleccionar'], ['Arrastrar en el fondo', 'recuadro para seleccionar varios'], ['Borde del recinto', 'arrastrar para moverlo; esquinas: cambiar el tamaño'], ['Rueda', 'desplazar el plano (Mayús: hacia los lados)'], ['Ctrl + rueda', 'acercar o alejar'], ['Botón central o derecho', 'arrastrar para mover la vista'], ['Mayús + clic', 'añadir a la selección'], ['Doble clic en plaza', 'seleccionar su fila entera'], ['Arrastrar', 'mover (en una plaza se encaja; sobre otro coche, se intercambian)'], ['R', 'girar 90°'], ['Flechas', 'mover 10 cm (Mayús: 1 m)'], ['Supr', 'retirar del plano / borrar'], ['Ctrl + D', 'duplicar'], ['Ctrl + Z', 'deshacer']].forEach(([a, b]) => { const x = document.createElement('kbd'); x.textContent = a; const y = document.createElement('span'); y.textContent = b; k.append(x, y); });
     P.append(section('Atajos', k));
   } else if (items.length === 1) {
     const o = items[0];
@@ -1136,6 +1149,13 @@ svg.addEventListener('pointerdown', e => {
   // mover la vista: rueda del ratón, o arrastrar con el botón central / derecho / barra espaciadora; en pantallas táctiles, con el dedo
   const panGesture = e.button === 1 || e.button === 2 || spaceDown || (e.pointerType === 'touch' && !multiMode);
   const handle = e.target.closest('[data-handle]');
+  const lotH = e.target.closest('[data-lot]');
+  if (lotH && e.button === 0 && !spaceDown) {
+    svg.setPointerCapture(e.pointerId);
+    if (!canWrite) { mutate(() => {}); return; }
+    drag = {type:'lot', mode:lotH.dataset.lot, p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, f:{x:0, y:0, w:S.W, h:S.H}};
+    return;
+  }
   const hit = e.target.closest('[data-id]');
   svg.setPointerCapture(e.pointerId);
   if (handle && hit && e.button === 0 && !spaceDown) {
@@ -1190,6 +1210,18 @@ svg.addEventListener('pointermove', e => {
     let m = overlayLayer.querySelector('rect'); if (!m) { m = E('rect', {fill:'rgba(11,110,110,.08)', stroke:cssv('--accent'), 'stroke-width':.08, 'stroke-dasharray':'.3 .2'}); overlayLayer.append(m); }
     m.setAttribute('x', x); m.setAttribute('y', y); m.setAttribute('width', w); m.setAttribute('height', h);
     drag.rect = {x, y, w, h};
+  } else if (drag.type === 'lot') {
+    const p = pt(e), dx = snapV(p.x - drag.p0.x) || 0, dy = snapV(p.y - drag.p0.y) || 0, m = drag.mode, W = S.W, H = S.H;
+    let x = 0, y = 0, w = W, h = H;
+    if (m === 'move') { x = dx; y = dy; }
+    else {
+      if (m.includes('w')) { x = Math.min(dx, W - 5); w = W - x; }
+      if (m.includes('e')) w = Math.max(5, W + dx);
+      if (m.includes('n')) { y = Math.min(dy, H - 5); h = H - y; }
+      if (m.includes('s')) h = Math.max(5, H + dy);
+    }
+    drag.f = {x:r2(x), y:r2(y), w:r2(w), h:r2(h)};
+    renderPlan();
   } else if (drag.type === 'resize') {
     const o = drag.o, p = pt(e);
     const [w0, h0] = [o.w, o.h];
@@ -1210,6 +1242,16 @@ function endDrag(e){
     if (!d.rect && !d.add) sel.clear();
     if (d.rect) { sel = new Set(d.base); for (const o of S.objs) if ((o.kind !== 'car' || o.placed) && o.x >= d.rect.x && o.x <= d.rect.x + d.rect.w && o.y >= d.rect.y && o.y <= d.rect.y + d.rect.h) sel.add(o.id); }
     render(); if (pendingRemote) applyRemote(); return;
+  }
+  if (d.type === 'lot') {
+    const f = d.f;
+    if (!d.moved || (!f.x && !f.y && f.w === S.W && f.h === S.H)) { render(); if (pendingRemote) applyRemote(); return; }
+    // el recinto siempre empieza en (0,0): al moverlo, se desplaza todo lo de dentro al revés y la vista lo acompaña
+    mutate(() => { for (const o of S.objs) { o.x = r2(o.x - f.x); o.y = r2(o.y - f.y); } S.W = f.w; S.H = f.h; });
+    view.x -= f.x; view.y -= f.y; setViewBox();
+    toast(d.mode === 'move' ? 'Recinto movido. Ctrl+Z lo deshace.' : `Recinto de ${nf.format(f.w)} × ${nf.format(f.h)} m. Ctrl+Z lo deshace.`);
+    if (pendingRemote) applyRemote();
+    return;
   }
   if (d.type === 'resize') { if (d.moved) commit(d.before); else render(); if (pendingRemote) applyRemote(); return; }
   if (d.type === 'move') {
