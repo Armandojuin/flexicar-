@@ -266,15 +266,15 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
   <aside class="right" id="props"></aside>
 </main>
 
+<script src="config.js"></script>
 <script>
 (() => {
 'use strict';
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-/* Web pública con plano común: pon aquí los datos de tu proyecto de Supabase
-   (Settings > API: «Project URL» y la clave «anon public»). Vacío = sin base de datos. */
-const NUBE = {url:'', clave:''};
+/* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
+const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
 const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', maximumFractionDigits:0});
 const nf = new Intl.NumberFormat('es-ES');
