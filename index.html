@@ -976,6 +976,7 @@ function renderProps(){
     } else if (o.kind === 'spot') {
       const c = carInSpot(o.id);
       const s = section('Plaza', grid(field(o, 'label', 'Nombre', 'text', {full:true}), field(o, 'w', 'Fondo (m)', 'number', {step:.1, min:1}), field(o, 'h', 'Ancho (m)', 'number', {step:.1, min:1}), field(o, 'rot', 'Giro (°)', 'number', {step:15})), kv('Ocupada por', c ? `${plate(c)} · ${carTitle(c)}` : 'Libre'));
+      s.append(actions(btn(`Juntar la fila ${spotPrefix(o.label)} (quitar huecos)`, () => { resizeSpots(objs('spot').filter(x => spotPrefix(x.label) === spotPrefix(o.label)), 0, 0, true); toast('Fila alineada. Ctrl+Z lo deshace.'); })));
       s.append(actions(btn(`Seleccionar la fila ${spotPrefix(o.label)} entera`, () => selectRow(o), 'primary'), btn('Todas las plazas', () => { sel = new Set(objs('spot').map(x => x.id)); render(); })));
       s.append(actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), c ? btn('Ver coche', () => { sel = new Set([c.id]); render(); }) : null, confirmBtn('Borrar plaza', deleteSel)));
       P.append(s);
@@ -1000,6 +1001,7 @@ function renderProps(){
       const keepL = document.createElement('label'); keepL.className = 'f check full'; const keep = document.createElement('input'); keep.type = 'checkbox'; keep.id = 'ms-keep'; keep.checked = true; keepL.append(keep, ' Recolocarlas para que no se monten ni queden huecos');
       const quick = actions(...[[2.5, 5], [2.8, 5.5], [3.2, 6]].map(([w, d]) => btn(`${nf.format(w)} × ${nf.format(d)} m`, () => { iW.value = w; iD.value = d; })));
       const hint = document.createElement('p'); hint.style.cssText = 'margin:0;font-size:12px;color:var(--muted)'; hint.textContent = 'Cuanto más grandes, más datos del coche se ven dentro. Arrastra cualquiera de ellas para moverlas todas a la vez.';
+      P.append(section('Separación', actions(btn('Juntar plazas (quitar huecos)', () => { resizeSpots(sps, 0, 0, true); toast('Plazas juntas y alineadas. Ctrl+Z lo deshace.'); }, 'primary'))));
       P.append(section(`Tamaño de las ${sps.length} plazas`, grid(mkField('Ancho (m)', iW), mkField('Fondo (m)', iD)), quick, keepL, actions(btn('Aplicar tamaño', () => {
         const w = +iW.value || 0, d = +iD.value || 0;
         if (!w && !d) { toast('Escribe el ancho o el fondo.'); return; }
@@ -1066,9 +1068,11 @@ function resizeSpots(list, dep, wid, keep){
         const pr = g.map(s => s.x * ax + s.y * ay), mid = (pr[0] + pr[pr.length - 1]) / 2;
         let pos = mid - g.reduce((t, s) => t + s.h, 0) / 2;
         g.forEach((s, i) => { const t = pos + s.h / 2 - pr[i]; s.x = r2(s.x + t * ax); s.y = r2(s.y + t * ay); pos += s.h; });
+        const [px, py] = depthOf(g[0].rot), dp = g.map(s => s.x * px + s.y * py), mean = dp.reduce((a, b) => a + b, 0) / dp.length;
+        g.forEach((s, i) => { const t = mean - dp[i]; s.x = r2(s.x + t * px); s.y = r2(s.y + t * py); });
       }
       // filas paralelas: las que estaban pegadas siguen pegadas, y ninguna se monta sobre otra
-      const byRot = new Map(); info.forEach(f => { if (!byRot.has(f.rot)) byRot.set(f.rot, []); byRot.get(f.rot).push(f); });
+      const byRot = new Map(); if (dep || wid) info.forEach(f => { if (!byRot.has(f.rot)) byRot.set(f.rot, []); byRot.get(f.rot).push(f); });
       for (const fs of byRot.values()) {
         fs.sort((a, b) => (a.lo + a.hi) - (b.lo + b.hi));
         for (let i = 1; i < fs.length; i++) {
@@ -1347,8 +1351,9 @@ function openRow(){
     const ids = [];
     mutate(() => {
       for (let i = 0; i < n; i++) {
-        const off = (i - (n - 1) / 2) * step;
-        const s = {id:uid(), kind:'spot', label:pre + (st + i), x:snapV(hor ? cx + off : cx), y:snapV(hor ? cy : cy + off), w:dpt, h:w, rot};
+        // se ajusta a la cuadrícula solo el comienzo de la fila; las plazas van exactamente pegadas
+        const off = (i - (n - 1) / 2) * step, start = snapV((hor ? cx : cy) - (n - 1) / 2 * step) + (n - 1) / 2 * step;
+        const s = {id:uid(), kind:'spot', label:pre + (st + i), x:r2(hor ? start + off : snapV(cx)), y:r2(hor ? snapV(cy) : start + off), w:dpt, h:w, rot};
         S.objs.push(s); ids.push(s.id);
       }
       sel = new Set(ids);
