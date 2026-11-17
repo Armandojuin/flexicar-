@@ -139,6 +139,7 @@ aside.right{border-left:1px solid var(--line)}
 .overlay{position:absolute;pointer-events:none;display:flex;gap:8px}
 .legend{left:max(12px,env(safe-area-inset-left,0px));bottom:12px;flex-wrap:wrap;max-width:calc(100% - 24px)}
 .legend .chip{pointer-events:auto;display:inline-flex;align-items:center;gap:6px;background:var(--panel);border:1px solid var(--line);border-radius:999px;padding:3px 9px 3px 6px;font-size:11.5px}
+.legend .chip.lbl{background:transparent;border:0;font-weight:600;color:var(--muted);padding-left:6px}
 .legend .chip i{width:10px;height:10px;border-radius:3px;display:inline-block}
 .zoom{right:max(12px,env(safe-area-inset-right,0px));bottom:12px;pointer-events:auto;flex-direction:column;gap:4px}
 .hint{right:max(12px,env(safe-area-inset-right,0px));top:10px;font-size:11.5px;color:var(--muted);background:color-mix(in srgb,var(--panel) 85%,transparent);padding:4px 8px;border-radius:6px}
@@ -231,9 +232,9 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
     </div>
     <span class="sep"></span>
     <button class="btn" id="bSort" title="Colocar automáticamente los coches en las plazas">Ordenar exposición</button>
-    <label class="inline" for="colorBy">Color
+    <label class="inline" for="colorBy">Franja
       <select class="sm" id="colorBy">
-        <option value="estado">Estado</option>
+        <option value="estado">Ninguna</option>
         <option value="combustible">Combustible</option>
         <option value="marca">Marca</option>
         <option value="precio">Precio</option>
@@ -833,7 +834,8 @@ function renderPlan(opts = {}){
       if (selected) g.append(E('rect', {x:-o.w/2 - .1, y:-o.h/2 - .1, width:o.w + .2, height:o.h + .2, fill:'none', stroke:C.accent, 'stroke-width':.12}));
       layers.spot.append(g);
     } else if (o.kind === 'car' && o.placed) {
-      const fill = carFill(o, pr), ink = inkFor(fill);
+      // el coche siempre lleva el color de su estado; lo que se elija en «Franja» va en una banda en la parte trasera
+      const fill = estadoColor(o.estado), ink = inkFor(fill), stripe = S.colorBy !== 'estado' ? carFill(o, pr) : null;
       const sp = o.spot ? byId(o.spot) : null;
       // dentro de una plaza, el coche se dibuja ocupando la plaza (así se lee mejor)
       const L = sp ? Math.max(2, sp.w - .3) : o.L, A = sp ? Math.max(1, sp.h - .3) : o.A;
@@ -841,20 +843,22 @@ function renderPlan(opts = {}){
         E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill, stroke:shade(fill, .62), 'stroke-width':.06}),
         E('rect', {x:L/2 - 1.2, y:-A/2 + .16, width:.34, height:A - .32, rx:.12, fill:'rgba(0,0,0,.1)'}),
         E('rect', {x:-L/2 + .22, y:-A/2 + .22, width:.22, height:A - .44, rx:.08, fill:'rgba(0,0,0,.12)'}),
-        isSold(o) ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null
+        isSold(o) ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null,
+        stripe ? E('path', {d:`M${-L/2 + .62} ${-A/2}H${-L/2 + .42}A.42 .42 0 0 0 ${-L/2} ${-A/2 + .42}V${A/2 - .42}A.42 .42 0 0 0 ${-L/2 + .42} ${A/2}H${-L/2 + .62}Z`, fill:stripe, stroke:shade(fill, .62), 'stroke-width':.04}) : null
       ]);
       const r = ((o.rot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
-      const bw = (vert ? A : L) - .3, bh = (vert ? L : A) - .25;
+      const sh = stripe ? .31 : 0; // hueco que deja la franja
+      const bw = (vert ? A : L) - .3 - (vert ? 0 : sh * 2), bh = (vert ? L : A) - .25 - (vert ? sh * 2 : 0);
       const fs = Math.max(.26, Math.min(bw / 5.2, bh / 3.4, .8));
       const cap = Math.floor(bh / (fs * 1.3));
       const price = +o.precio ? eur.format(+o.precio) : '';
       const extra = [o.anio, +o.km ? nf.format(+o.km) + ' km' : ''].filter(Boolean).join(' · ');
       // etiqueta del estado, del color del estado (no se muestra para el estado normal, p. ej. «Disponible»)
-      const badge = !isDefaultEstado(o) ? [o.estado, .95, 700, null, estadoColor(o.estado)] : null;
+      const est = !isDefaultEstado(o) ? [o.estado, .85, 700] : null;
       let rows;
-      if (cap >= 6) rows = [[sp ? 'Plaza ' + sp.label : '', .8, 600, fplate], [plate(o), 1.15, 700, fplate], [o.marca, 1, 600], [o.modelo, 1, 500], [extra, .82, 500], [price, 1.12, 700], badge];
-      else if (cap >= 4) rows = [[(sp ? sp.label + ' · ' : '') + plate(o), 1.1, 700, fplate], [carTitle(o), 1, 500], badge || [extra, .82, 500], [price, 1.05, 700]];
-      else rows = [[(sp ? sp.label + ' · ' : '') + plate(o), 1.1, 700, fplate], badge || [carTitle(o), .95, 500], [price, 1, 700]];
+      if (cap >= 6) rows = [[plate(o), 1.15, 700, fplate], [o.marca, 1, 600], [o.modelo, 1, 500], [extra, .82, 500], [price, 1.12, 700], est];
+      else if (cap >= 4) rows = [[plate(o), 1.1, 700, fplate], [carTitle(o), 1, 500], est || [extra, .82, 500], [price, 1.05, 700]];
+      else rows = [[plate(o), 1.1, 700, fplate], [carTitle(o), .95, 500], [price, 1, 700]];
       rows = rows.filter(Boolean);
       rows = rows.filter(x => x[0]).slice(0, Math.max(2, cap));
       const lh = rows.map(x => fs * x[1] * 1.28), tot = lh.reduce((a, b) => a + b, 0);
@@ -871,8 +875,7 @@ function renderPlan(opts = {}){
         const [txt, f] = fitText(String(x[0]), fs * x[1], x[2], x[3] || font, bw);
         texts.push(T(0, cy, txt, {'font-size':r2(f * 100) / 100, 'font-weight':x[2], 'font-family':x[3] || font}));
       });
-      g.append(E('g', {transform:`rotate(${-r})`, fill:ink}, texts));
-      if (S.colorBy !== 'estado') g.append(E('circle', {cx:-L/2 + .3, cy:-A/2 + .3, r:.17, fill:estadoColor(o.estado), stroke:'#fff', 'stroke-width':.05}));
+      g.append(E('g', {transform:`translate(${sh} 0) rotate(${-r})`, fill:ink}, texts));
       if (bad.has(o.id)) g.append(E('rect', {x:-L/2 - .08, y:-A/2 - .08, width:L + .16, height:A + .16, rx:.45, fill:'none', stroke:C.bad, 'stroke-width':.14, 'stroke-dasharray':'.35 .2'}));
       if (selected) g.append(E('rect', {x:-L/2 - .12, y:-A/2 - .12, width:L + .24, height:A + .24, rx:.5, fill:'none', stroke:C.accent, 'stroke-width':.14}));
       layers.car.append(g);
@@ -908,8 +911,10 @@ function renderLegend(){
   const lg = $('#legend'); lg.replaceChildren();
   const chip = (c, t) => { const d = document.createElement('span'); d.className = 'chip'; const i = document.createElement('i'); i.style.background = c; d.append(i, t); lg.append(d); };
   const placed = objs('car').filter(c => c.placed);
-  if (S.colorBy === 'estado') estados().forEach(e => chip(e.color, e.name));
-  else if (S.colorBy === 'combustible') COMBUS.filter(f => placed.some(c => c.combustible === f)).forEach(f => chip(FUEL_C[f], f));
+  estados().filter(e => placed.some(c => c.estado === e.name) || e.name === estadoBase()).forEach(e => chip(e.color, e.name));
+  if (S.colorBy === 'estado') return;
+  const sep = document.createElement('span'); sep.className = 'chip lbl'; sep.textContent = 'Franja:'; lg.append(sep);
+  if (S.colorBy === 'combustible') COMBUS.filter(f => placed.some(c => c.combustible === f)).forEach(f => chip(FUEL_C[f], f));
   else if (S.colorBy === 'marca') [...new Set(placed.map(c => c.marca).filter(Boolean))].sort(natural).slice(0, 14).forEach(m => chip(BRAND_PAL[hashStr(m.toLowerCase()) % BRAND_PAL.length], m));
   else if (S.colorBy === 'precio') { const pr = priceRange(); chip(priceColor(pr[0], pr), eur.format(pr[0])); chip(priceColor((pr[0] + pr[1]) / 2, pr), eur.format((pr[0] + pr[1]) / 2)); chip(priceColor(pr[1], pr), eur.format(pr[1])); }
   else if (S.colorBy === 'categoria') { cats().filter(k => placed.some(c => c.cat === k.id)).forEach(k => chip(k.color, k.name)); if (placed.some(c => !catById(c.cat))) chip(cssv('--idle'), 'Sin categoría'); if (!cats().length) chip(cssv('--idle'), 'Aún no hay categorías'); }
