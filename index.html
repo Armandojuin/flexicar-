@@ -91,6 +91,7 @@ body.readonly .addbar,body.readonly #bSort,body.readonly #bImport,body.readonly 
 .btn.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 .btn.danger{color:var(--bad)}
 .btn.danger.armed{background:var(--bad);border-color:var(--bad);color:#fff}
+.btn.on{background:var(--accent);border-color:var(--accent);color:var(--accent-fg)}
 .btn.icon{padding:6px 8px;min-width:32px;justify-content:center}
 .btn svg{width:16px;height:16px;flex:none}
 label.inline{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
@@ -258,6 +259,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
     <div class="overlay legend" id="legend"></div>
     <div class="stagemsg" id="stageMsg" hidden></div>
     <div class="overlay zoom">
+      <button class="btn icon" id="zMulti" title="Seleccionar varios: toca elementos o arrastra un marco" aria-pressed="false"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="13" height="13" rx="1.5" stroke-dasharray="2.5 2"/><path d="m6 8 1.6 1.6L11 6.2"/></svg></button>
       <button class="btn icon" id="zIn" title="Acercar">+</button>
       <button class="btn icon" id="zFit" title="Ver todo el plano"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>
       <button class="btn icon" id="zOut" title="Alejar">−</button>
@@ -697,6 +699,17 @@ function E(tag, attrs = {}, kids = []){
 function T(x, y, txt, attrs = {}){ return E('text', Object.assign({x, y, 'text-anchor':'middle', 'dominant-baseline':'central'}, attrs), [document.createTextNode(txt)]); }
 const tf = o => `translate(${r2(o.x)} ${r2(o.y)}) rotate(${r2(o.rot || 0)})`;
 function readable(rot){ const r = ((rot % 360) + 360) % 360; return (r > 90 && r <= 270) ? 180 : 0; }
+const measureCtx = document.createElement('canvas').getContext('2d');
+function textW(t, f, weight, family){ measureCtx.font = `${weight} 100px ${family}`; return measureCtx.measureText(t).width / 100 * f; }
+// ajusta el texto al ancho disponible: primero reduce la letra (hasta un 70 %) y, si aun así no cabe, lo recorta
+function fitText(t, f, weight, family, maxW){
+  const w = textW(t, f, weight, family);
+  if (w <= maxW) return [t, f];
+  const f2 = Math.max(f * .7, f * maxW / w);
+  let out = t;
+  while (out.length > 3 && textW(out, f2, weight, family) > maxW) out = out.slice(0, -2) + '…';
+  return [out, f2];
+}
 function clip(s, n){ return s.length > n ? s.slice(0, n - 1) + '…' : s; }
 
 function setViewBox(){
@@ -770,24 +783,35 @@ function renderPlan(opts = {}){
       if (selected) g.append(E('rect', {x:-o.w/2 - .1, y:-o.h/2 - .1, width:o.w + .2, height:o.h + .2, fill:'none', stroke:C.accent, 'stroke-width':.12}));
       layers.spot.append(g);
     } else if (o.kind === 'car' && o.placed) {
-      const fill = carFill(o, pr), ink = inkFor(fill), L = o.L, A = o.A;
+      const fill = carFill(o, pr), ink = inkFor(fill);
       const sp = o.spot ? byId(o.spot) : null;
+      // dentro de una plaza, el coche se dibuja ocupando la plaza (así se lee mejor)
+      const L = sp ? Math.max(2, sp.w - .3) : o.L, A = sp ? Math.max(1, sp.h - .3) : o.A;
       const g = E('g', {'data-id':o.id, transform:tf(o), style:'cursor:move'}, [
         E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill, stroke:shade(fill, .62), 'stroke-width':.06}),
-        E('rect', {x:L/2 - 1.45, y:-A/2 + .2, width:.5, height:A - .4, rx:.14, fill:'rgba(0,0,0,.28)'}),
-        E('rect', {x:-L/2 + .3, y:-A/2 + .26, width:.3, height:A - .52, rx:.1, fill:'rgba(0,0,0,.22)'}),
+        E('rect', {x:L/2 - 1.2, y:-A/2 + .16, width:.34, height:A - .32, rx:.12, fill:'rgba(0,0,0,.1)'}),
+        E('rect', {x:-L/2 + .22, y:-A/2 + .22, width:.22, height:A - .44, rx:.08, fill:'rgba(0,0,0,.12)'}),
         o.estado === 'Vendido' ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null
       ]);
-      const big = Math.min(.44, A * .24), small = Math.min(.31, A * .17);
-      const lines = [
-        T(0, -A * .23, (sp ? sp.label + ' · ' : '') + plate(o), {'font-size':big, 'font-weight':700, 'font-family':fplate, 'letter-spacing':.02}),
-        T(0, A * .03, clip(carTitle(o), 17), {'font-size':small, 'font-family':font, 'font-weight':500}),
-        T(0, A * .26, (+o.precio ? eur.format(+o.precio) : '') + (o.estado !== 'Disponible' && S.colorBy !== 'estado' ? ' · ' + o.estado : ''), {'font-size':small, 'font-family':font, 'font-weight':700})
-      ];
-      g.append(E('g', {transform:`translate(-0.42 0) rotate(${readable(o.rot)})`, fill:ink}, lines));
-      if (S.colorBy !== 'estado') g.append(E('circle', {cx:-L/2 + .28, cy:-A/2 + .28, r:.16, fill:estadoColor(o.estado), stroke:'#fff', 'stroke-width':.05}));
+      const r = ((o.rot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
+      const bw = (vert ? A : L) - .3, bh = (vert ? L : A) - .25;
+      const fs = Math.max(.26, Math.min(bw / 5.2, bh / 3.4, .8));
+      const cap = Math.floor(bh / (fs * 1.3));
+      const price = +o.precio ? eur.format(+o.precio) : '';
+      const extra = [o.anio, +o.km ? nf.format(+o.km) + ' km' : ''].filter(Boolean).join(' · ');
+      const est = o.estado !== 'Disponible' && S.colorBy !== 'estado' ? o.estado : '';
+      let rows;
+      if (cap >= 6) rows = [[sp ? 'Plaza ' + sp.label : '', .8, 600, fplate], [plate(o), 1.15, 700, fplate], [o.marca, 1, 600], [o.modelo, 1, 500], [extra, .82, 500], [price, 1.12, 700], [est, .8, 700]];
+      else if (cap >= 4) rows = [[(sp ? sp.label + ' · ' : '') + plate(o), 1.1, 700, fplate], [carTitle(o), 1, 500], [extra, .82, 500], [[price, est].filter(Boolean).join(' · '), 1.05, 700]];
+      else rows = [[(sp ? sp.label + ' · ' : '') + plate(o), 1.1, 700, fplate], [carTitle(o), .95, 500], [[price, est].filter(Boolean).join(' · '), 1, 700]];
+      rows = rows.filter(x => x[0]).slice(0, Math.max(2, cap));
+      const lh = rows.map(x => fs * x[1] * 1.28), tot = lh.reduce((a, b) => a + b, 0);
+      let y = -tot / 2; const texts = [];
+      rows.forEach((x, i) => { const [txt, f] = fitText(String(x[0]), fs * x[1], x[2], x[3] || font, bw); texts.push(T(0, y + lh[i] / 2, txt, {'font-size':r2(f * 100) / 100, 'font-weight':x[2], 'font-family':x[3] || font})); y += lh[i]; });
+      g.append(E('g', {transform:`rotate(${-r})`, fill:ink}, texts));
+      if (S.colorBy !== 'estado') g.append(E('circle', {cx:-L/2 + .3, cy:-A/2 + .3, r:.17, fill:estadoColor(o.estado), stroke:'#fff', 'stroke-width':.05}));
       if (bad.has(o.id)) g.append(E('rect', {x:-L/2 - .08, y:-A/2 - .08, width:L + .16, height:A + .16, rx:.45, fill:'none', stroke:C.bad, 'stroke-width':.14, 'stroke-dasharray':'.35 .2'}));
-      if (selected) g.append(E('rect', {x:-L/2 - .16, y:-A/2 - .16, width:L + .32, height:A + .32, rx:.5, fill:'none', stroke:C.accent, 'stroke-width':.14}));
+      if (selected) g.append(E('rect', {x:-L/2 - .12, y:-A/2 - .12, width:L + .24, height:A + .24, rx:.5, fill:'none', stroke:C.accent, 'stroke-width':.14}));
       layers.car.append(g);
     } else if (o.kind === 'text') {
       const size = o.size || 1, w = Math.max(1, (o.label || '').length * size * .58);
@@ -922,7 +946,7 @@ function renderProps(){
            field(S, 'snap', 'Imán', 'select', {options:[{v:0, n:'Sin imán'}, {v:0.1, n:'10 cm'}, {v:0.25, n:'25 cm'}, {v:0.5, n:'50 cm'}, {v:1, n:'1 m'}], after:o => { o.snap = +o.snap; }}),
            field(S, 'grid', 'Cuadrícula', 'checkbox'))));
     const k = document.createElement('div'); k.className = 'keys';
-    [['Clic', 'seleccionar'], ['Mayús + clic', 'añadir a la selección'], ['Arrastrar', 'mover (en una plaza se encaja; sobre otro coche, se intercambian)'], ['R', 'girar 90°'], ['Flechas', 'mover 10 cm (Mayús: 1 m)'], ['Supr', 'retirar del plano / borrar'], ['Ctrl + D', 'duplicar'], ['Ctrl + Z', 'deshacer']].forEach(([a, b]) => { const x = document.createElement('kbd'); x.textContent = a; const y = document.createElement('span'); y.textContent = b; k.append(x, y); });
+    [['Clic', 'seleccionar'], ['Mayús + clic', 'añadir a la selección'], ['Doble clic en plaza', 'seleccionar su fila entera'], ['Arrastrar', 'mover (en una plaza se encaja; sobre otro coche, se intercambian)'], ['R', 'girar 90°'], ['Flechas', 'mover 10 cm (Mayús: 1 m)'], ['Supr', 'retirar del plano / borrar'], ['Ctrl + D', 'duplicar'], ['Ctrl + Z', 'deshacer']].forEach(([a, b]) => { const x = document.createElement('kbd'); x.textContent = a; const y = document.createElement('span'); y.textContent = b; k.append(x, y); });
     P.append(section('Atajos', k));
   } else if (items.length === 1) {
     const o = items[0];
@@ -952,6 +976,7 @@ function renderProps(){
     } else if (o.kind === 'spot') {
       const c = carInSpot(o.id);
       const s = section('Plaza', grid(field(o, 'label', 'Nombre', 'text', {full:true}), field(o, 'w', 'Fondo (m)', 'number', {step:.1, min:1}), field(o, 'h', 'Ancho (m)', 'number', {step:.1, min:1}), field(o, 'rot', 'Giro (°)', 'number', {step:15})), kv('Ocupada por', c ? `${plate(c)} · ${carTitle(c)}` : 'Libre'));
+      s.append(actions(btn(`Seleccionar la fila ${spotPrefix(o.label)} entera`, () => selectRow(o), 'primary'), btn('Todas las plazas', () => { sel = new Set(objs('spot').map(x => x.id)); render(); })));
       s.append(actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), c ? btn('Ver coche', () => { sel = new Set([c.id]); render(); }) : null, confirmBtn('Borrar plaza', deleteSel)));
       P.append(s);
     } else if (o.kind === 'zone') {
@@ -969,6 +994,17 @@ function renderProps(){
     s.append(actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), n.car ? btn('Retirar coches del plano', () => unplace(items.filter(isCar).map(c => c.id))) : null, (n.spot + n.zone + n.text) ? confirmBtn('Borrar (no coches)', deleteSel) : null));
     P.append(s);
     if (n.spot > 1) {
+      const sps = items.filter(o => o.kind === 'spot');
+      const same = k => sps.every(x => x[k] === sps[0][k]) ? sps[0][k] : '';
+      const iW = mkInput('ms-w', 'number', same('h'), {step:.1, min:1.5, placeholder:'varios'}), iD = mkInput('ms-d', 'number', same('w'), {step:.1, min:3, placeholder:'varios'});
+      const keepL = document.createElement('label'); keepL.className = 'f check full'; const keep = document.createElement('input'); keep.type = 'checkbox'; keep.id = 'ms-keep'; keep.checked = true; keepL.append(keep, ' Recolocarlas para que no se monten ni queden huecos');
+      const quick = actions(...[[2.5, 5], [2.8, 5.5], [3.2, 6]].map(([w, d]) => btn(`${nf.format(w)} × ${nf.format(d)} m`, () => { iW.value = w; iD.value = d; })));
+      const hint = document.createElement('p'); hint.style.cssText = 'margin:0;font-size:12px;color:var(--muted)'; hint.textContent = 'Cuanto más grandes, más datos del coche se ven dentro. Arrastra cualquiera de ellas para moverlas todas a la vez.';
+      P.append(section(`Tamaño de las ${sps.length} plazas`, grid(mkField('Ancho (m)', iW), mkField('Fondo (m)', iD)), quick, keepL, actions(btn('Aplicar tamaño', () => {
+        const w = +iW.value || 0, d = +iD.value || 0;
+        if (!w && !d) { toast('Escribe el ancho o el fondo.'); return; }
+        resizeSpots(sps, d, w, keep.checked); toast('Plazas actualizadas. Ctrl+Z lo deshace.');
+      }, 'primary')), hint));
       const tmp = {pre:spotPrefix(items.find(o => o.kind === 'spot').label), start:1};
       const g = grid(field(tmp, 'pre', 'Letra de fila'), field(tmp, 'start', 'Empezar en', 'number', {step:1}));
       g.querySelectorAll('input').forEach(i => i.replaceWith(i.cloneNode(true)));
@@ -990,7 +1026,64 @@ function addCar(){
 }
 function addZone(){ const [x, y] = centerView(); mutate(() => { const z = {id:uid(), kind:'zone', label:'Nueva zona', tipo:'otra', x:snapV(x), y:snapV(y), w:6, h:4, rot:0}; S.objs.push(z); sel = new Set([z.id]); }); }
 function addText(){ const [x, y] = centerView(); mutate(() => { const t = {id:uid(), kind:'text', label:'Rótulo', x:snapV(x), y:snapV(y), rot:0, size:1}; S.objs.push(t); sel = new Set([t.id]); }); }
-function rotateSel(d){ mutate(() => { for (const id of sel) { const o = byId(id); if (o && (o.kind !== 'car' || o.placed)) o.rot = ((o.rot || 0) + d) % 360; if (isCar(o) && o.spot) { const s = byId(o.spot); if (s && !sel.has(s.id)) o.spot = null; } if (o && o.kind === 'spot') { const c = carInSpot(o.id); if (c) c.rot = o.rot; } } }); }
+function rotateSel(d){
+  mutate(() => {
+    const picked = [...sel].map(byId).filter(o => o && (o.kind !== 'car' || o.placed));
+    if (!picked.length) return;
+    const ids = new Set(picked.map(o => o.id));
+    const movers = picked.slice();
+    for (const c of objs('car')) if (c.placed && c.spot && ids.has(c.spot) && !ids.has(c.id)) movers.push(c);
+    const group = picked.length > 1;
+    const xs = picked.map(o => o.x), ys = picked.map(o => o.y);
+    const cx = snapV((Math.min(...xs) + Math.max(...xs)) / 2), cy = snapV((Math.min(...ys) + Math.max(...ys)) / 2);
+    for (const o of movers) {
+      if (group) { const [dx, dy] = rotP(o.x - cx, o.y - cy, d); o.x = r2(cx + dx); o.y = r2(cy + dy); }
+      o.rot = ((((o.rot || 0) + d) % 360) + 360) % 360;
+    }
+    for (const o of picked) if (isCar(o) && o.spot && !ids.has(o.spot)) o.spot = null;
+  });
+}
+function selectRow(spot){
+  const pre = spotPrefix(spot.label);
+  const row = objs('spot').filter(x => spotPrefix(x.label) === pre);
+  sel = new Set(row.map(x => x.id)); render();
+  toast(`Fila ${pre} seleccionada (${row.length} plazas). Arrastra una para mover toda la fila.`);
+}
+function resizeSpots(list, dep, wid, keep){
+  mutate(() => {
+    const sp = list.map(o => byId(o.id)).filter(o => o && o.kind === 'spot');
+    const axisOf = rot => rotP(0, 1, rot), depthOf = rot => rotP(1, 0, rot);
+    const key = s => spotPrefix(s.label) + '|' + ((Math.round(s.rot) % 180) + 180) % 180;
+    const rows = new Map(); sp.forEach(s => { if (!rows.has(key(s))) rows.set(key(s), []); rows.get(key(s)).push(s); });
+    // separación original entre filas (para mantener pegadas las que estaban pegadas)
+    const info = [...rows.values()].map(g => { const [px, py] = depthOf(g[0].rot); const pr = g.map(s => s.x * px + s.y * py); return {g, px, py, lo:Math.min(...g.map((s, i) => pr[i] - s.w / 2)), hi:Math.max(...g.map((s, i) => pr[i] + s.w / 2)), rot:((Math.round(g[0].rot) % 180) + 180) % 180}; });
+    sp.forEach(s => { if (dep) s.w = dep; if (wid) s.h = wid; });
+    if (keep) {
+      for (const g of rows.values()) {
+        if (g.length < 2) continue;
+        const [ax, ay] = axisOf(g[0].rot);
+        g.sort((a, b) => (a.x * ax + a.y * ay) - (b.x * ax + b.y * ay));
+        const pr = g.map(s => s.x * ax + s.y * ay), mid = (pr[0] + pr[pr.length - 1]) / 2;
+        let pos = mid - g.reduce((t, s) => t + s.h, 0) / 2;
+        g.forEach((s, i) => { const t = pos + s.h / 2 - pr[i]; s.x = r2(s.x + t * ax); s.y = r2(s.y + t * ay); pos += s.h; });
+      }
+      // filas paralelas: las que estaban pegadas siguen pegadas, y ninguna se monta sobre otra
+      const byRot = new Map(); info.forEach(f => { if (!byRot.has(f.rot)) byRot.set(f.rot, []); byRot.get(f.rot).push(f); });
+      for (const fs of byRot.values()) {
+        fs.sort((a, b) => (a.lo + a.hi) - (b.lo + b.hi));
+        for (let i = 1; i < fs.length; i++) {
+          const a = fs[i - 1], b = fs[i], gap0 = b.lo - a.hi;
+          const ext = f => { const pr = f.g.map(s => s.x * f.px + s.y * f.py); return [Math.min(...f.g.map((s, k) => pr[k] - s.w / 2)), Math.max(...f.g.map((s, k) => pr[k] + s.w / 2))]; };
+          const [, ahi] = ext(a), [blo] = ext(b);
+          let delta = 0;
+          if (Math.abs(gap0) < .05) delta = ahi - blo; else if (blo < ahi) delta = ahi - blo + .2;
+          if (Math.abs(delta) > .001) for (let j = i; j < fs.length; j++) fs[j].g.forEach(s => { s.x = r2(s.x + delta * fs[j].px); s.y = r2(s.y + delta * fs[j].py); });
+        }
+      }
+    }
+    for (const c of objs('car')) if (c.placed && c.spot) { const s2 = byId(c.spot); if (s2 && sp.includes(s2)) placeInSpot(c, s2); }
+  });
+}
 function unplace(ids){ mutate(() => ids.forEach(id => { const c = byId(id); if (isCar(c)) { c.placed = false; c.spot = null; } })); }
 function deleteSel(){
   mutate(() => {
@@ -1029,7 +1122,7 @@ function focusOn(ids){
 }
 
 /* ---------- Ratón / táctil en el plano ---------- */
-let drag = null;
+let drag = null, lastDown = {}, multiMode = false;
 function pt(e){ const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
 function gEl(id){ return svg.querySelector(`[data-id="${id}"]`); }
 
@@ -1047,8 +1140,11 @@ svg.addEventListener('pointerdown', e => {
   }
   if (hit && e.button === 0) {
     const id = hit.dataset.id;
+    const now = Date.now(), ho = byId(id);
+    if (lastDown.id === id && now - lastDown.t < 380 && ho && ho.kind === 'spot' && !multiMode) { lastDown = {}; svg.releasePointerCapture(e.pointerId); selectRow(ho); return; }
+    lastDown = {id, t:now};
     let deferSelect = false;
-    if (e.shiftKey || e.ctrlKey || e.metaKey) { sel.has(id) ? sel.delete(id) : sel.add(id); }
+    if (e.shiftKey || e.ctrlKey || e.metaKey || multiMode) { sel.has(id) ? sel.delete(id) : sel.add(id); }
     else if (!sel.has(id)) sel = new Set([id]);
     else deferSelect = true;
     const moving = new Set([...sel].filter(i => { const o = byId(i); return o && (o.kind !== 'car' || o.placed); }));
@@ -1058,7 +1154,7 @@ svg.addEventListener('pointerdown', e => {
     renderPlan(); renderList(); renderProps();
     return;
   }
-  if (e.shiftKey && e.button === 0) {
+  if ((e.shiftKey || multiMode) && e.button === 0) {
     drag = {type:'marquee', p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, base:new Set(sel)};
   } else {
     drag = {type:'pan', start:{x:e.clientX, y:e.clientY}, v0:{...view}, moved:false};
@@ -1135,7 +1231,7 @@ function endDrag(e){
 svg.addEventListener('pointerup', endDrag);
 svg.addEventListener('pointercancel', endDrag);
 svg.addEventListener('wheel', e => { e.preventDefault(); const p = pt(e); zoomAt(Math.exp(e.deltaY * (e.ctrlKey ? .01 : .0015)), p.x, p.y); }, {passive:false});
-svg.addEventListener('dblclick', e => { const hit = e.target.closest('[data-id]'); if (hit) { const o = byId(hit.dataset.id); if (o && o.kind === 'spot' && !carInSpot(o.id)) toast('Arrastra un coche de la lista hasta esta plaza.'); } });
+
 
 // Soltar coches desde la lista
 document.addEventListener('dragstart', e => { const it = e.target.closest && e.target.closest('.item'); if (it) { e.dataTransfer.setData('text/plain', it.dataset.id); e.dataTransfer.effectAllowed = 'move'; } });
@@ -1226,8 +1322,8 @@ function openRow(){
   const iPre = mkInput('r-pre', 'text', next), iN = mkInput('r-n', 'number', 10, {min:1, max:200}), iStart = mkInput('r-start', 'number', 1, {min:0});
   const iTipo = mkSelect('r-tipo', [{v:'bateria', n:'En batería (perpendicular)'}, {v:'linea', n:'En línea (paralelo)'}], 'bateria');
   const iDir = mkSelect('r-dir', [{v:'h', n:'Horizontal'}, {v:'v', n:'Vertical'}], 'h');
-  const iW = mkInput('r-w', 'number', 2.5, {step:.1, min:1.8}), iD = mkInput('r-d', 'number', 5, {step:.1, min:3.5});
-  iTipo.onchange = () => { if (iTipo.value === 'linea') { iW.value = 2.2; iD.value = 5.5; } else { iW.value = 2.5; iD.value = 5; } upd(); };
+  const iW = mkInput('r-w', 'number', 2.8, {step:.1, min:1.8}), iD = mkInput('r-d', 'number', 5.5, {step:.1, min:3.5});
+  iTipo.onchange = () => { if (iTipo.value === 'linea') { iW.value = 2.4; iD.value = 6; } else { iW.value = 2.8; iD.value = 5.5; } upd(); };
   const sum = document.createElement('div'); sum.className = 'summary';
   const upd = () => { const n = +iN.value || 0, step = iTipo.value === 'bateria' ? +iW.value : +iD.value; sum.textContent = `${n} plazas, de ${iPre.value}${iStart.value} a ${iPre.value}${(+iStart.value) + n - 1}. La fila mide ${nf.format(r2(n * step))} m de largo.`; };
   [iPre, iN, iStart, iW, iD].forEach(i => i.oninput = upd); upd();
@@ -1510,6 +1606,7 @@ $('#colorBy').onchange = e => { S.colorBy = e.target.value; lsSet(LS_KEY + '-col
 $('#zIn').onclick = () => { const [x, y] = centerView(); zoomAt(1 / 1.3, x, y); };
 $('#zOut').onclick = () => { const [x, y] = centerView(); zoomAt(1.3, x, y); };
 $('#zFit').onclick = fit;
+$('#zMulti').onclick = () => { multiMode = !multiMode; $('#zMulti').classList.toggle('on', multiMode); $('#zMulti').setAttribute('aria-pressed', multiMode); toast(multiMode ? 'Selección múltiple: toca plazas o coches para añadirlos, o arrastra un marco sobre el plano.' : 'Selección múltiple desactivada.'); };
 new ResizeObserver(() => setViewBox()).observe(svg);
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => render()); } catch (e) {}
 new MutationObserver(() => render()).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
