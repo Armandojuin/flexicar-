@@ -113,7 +113,7 @@ aside.right{border-left:1px solid var(--line)}
 .note{font-size:12.5px;background:var(--accent-soft);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px}
 .note .row{display:flex;gap:6px;flex-wrap:wrap}
 .search{display:flex;gap:6px}
-.search #fCat{flex:1}
+.search #fCat,.search #fEstado{flex:1}
 .search input,.search select{min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 8px;font-size:13px}
 .search input{flex:1}
 .list{display:flex;flex-direction:column;padding:4px 8px 16px}
@@ -161,7 +161,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 
 /* Ventanas */
 .modal-bg{position:fixed;inset:0;background:rgba(10,14,13,.45);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
-.modal{background:var(--panel);color:var(--fg);border-radius:12px;width:min(560px,100%);max-height:calc(100% - 32px);overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column}
+.modal{background:var(--panel);color:var(--fg);border-radius:12px;width:min(660px,100%);max-height:calc(100% - 32px);overflow:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);display:flex;flex-direction:column}
 .modal header{padding:16px 18px 6px;display:flex;justify-content:space-between;align-items:center}
 .modal header h3{margin:0;font:700 17px/1.2 var(--font-head)}
 .modal .body{padding:8px 18px 12px;display:flex;flex-direction:column;gap:12px}
@@ -175,7 +175,12 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 .summary{font-size:13px;padding:8px 10px;border-radius:8px;background:var(--accent-soft)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;z-index:60;max-width:calc(100% - 32px)}
 .catlist{display:flex;flex-direction:column;gap:6px}
-.catrow{display:grid;grid-template-columns:40px minmax(0,1fr) auto auto auto;gap:8px;align-items:center}
+.catrow{display:grid;grid-template-columns:40px minmax(0,1fr) 62px 34px 66px;gap:8px;align-items:center}
+.catrow.est{grid-template-columns:40px minmax(0,1fr) 160px 62px 34px 66px}
+.catrow .btn{justify-content:center}
+.catrow select.tipo{min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 6px;font-size:12.5px}
+.modal .search select{border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 6px;font-size:13px;min-width:0}
+@media (max-width:600px){.catrow.est{grid-template-columns:40px minmax(0,1fr) 34px 66px}.catrow.est .catn{display:none}.catrow.est select.tipo{grid-column:2/-1;grid-row:2}}
 .catrow input[type=text]{min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 8px;font-size:13px}
 .catrow input[type=color]{width:40px;height:32px;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--bg);cursor:pointer}
 .catn{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -256,7 +261,10 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
       <h2>Stock <span id="stockCount"></span></h2>
       <div class="search">
         <input id="q" type="search" placeholder="Matrícula, marca, modelo…" aria-label="Buscar coche">
-        <select id="fEstado" aria-label="Filtrar por estado"><option value="">Todos</option></select>
+      </div>
+      <div class="search">
+        <select id="fEstado" aria-label="Filtrar por estado"></select>
+        <button class="btn" id="bEstados" title="Crear y editar estados">Estados</button>
       </div>
       <div class="search">
         <select id="fCat" aria-label="Filtrar por categoría"></select>
@@ -292,7 +300,27 @@ const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || ''
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
 const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', maximumFractionDigits:0});
 const nf = new Intl.NumberFormat('es-ES');
-const ESTADOS = ['Disponible','Reservado','En preparación','Vendido'];
+/* Estados de los coches: editables. Cada uno tiene un «comportamiento» que decide qué hace el programa con él. */
+const TIPOS_ESTADO = [
+  {v:'expo', n:'Se expone', d:'Se coloca y se ordena con normalidad'},
+  {v:'reservado', n:'Reservado', d:'Puede quedarse quieto al ordenar la exposición'},
+  {v:'fuera', n:'Fuera de exposición', d:'Preparación, taller, pendiente… No entra al ordenar'},
+  {v:'vendido', n:'Vendido', d:'Se retira del plano y avisa si sigue expuesto'}
+];
+const DEFAULT_ESTADOS = [
+  {name:'Disponible', color:'#2f8f4e', tipo:'expo'},
+  {name:'Reservado', color:'#c98a00', tipo:'reservado'},
+  {name:'En preparación', color:'#2f6fb3', tipo:'fuera'},
+  {name:'Vendido', color:'#c43c3c', tipo:'vendido'}
+];
+const EST_SUGERENCIAS = [['Señalizado', 'reservado', '#d9822b'], ['En taller', 'fuera', '#6b6f9e'], ['Pendiente de llegada', 'fuera', '#8a8f8c'], ['Pendiente de fotos', 'expo', '#3b8fa8'], ['Pendiente ITV', 'fuera', '#8a5bb5'], ['En tránsito', 'fuera', '#5f7f2a'], ['Oferta', 'expo', '#b3466f'], ['Entregado', 'vendido', '#7d1f2a']];
+const estados = () => Array.isArray(S && S.estados) && S.estados.length ? S.estados : DEFAULT_ESTADOS;
+const ESTADOS_LIST = () => estados().map(e => e.name);
+const estadoDef = name => estados().find(e => e.name === name) || {name, color:'#8a8f8c', tipo:'expo'};
+const estadoBase = () => (estados().find(e => e.tipo === 'expo') || estados()[0]).name;
+const tipoDe = c => estadoDef(c.estado).tipo;
+const isSold = c => tipoDe(c) === 'vendido';
+const isDefaultEstado = c => c.estado === estadoBase();
 const COMBUS = ['Gasolina','Diésel','Híbrido','Híbrido enchufable','Eléctrico','GLP'];
 const ZONAS = [
   {k:'oficina', n:'Oficina', c:'#c7d5e8'},
@@ -324,10 +352,10 @@ const r2 = v => Math.round(v * 100) / 100;
 
 /* ---------- Datos ---------- */
 function blankState(){
-  return {v:1, name:'Exposición', W:50, H:34, grid:true, snap:0.25, colorBy:'estado', sample:false, cats:[], objs:[]};
+  return {v:1, name:'Exposición', W:50, H:34, grid:true, snap:0.25, colorBy:'estado', sample:false, cats:[], estados:clone(DEFAULT_ESTADOS), objs:[]};
 }
 function newCar(p = {}){
-  return Object.assign({id:uid(), kind:'car', matricula:'', marca:'', modelo:'', version:'', anio:'', km:'', precio:'', combustible:'Gasolina', color:'', estado:'Disponible', notas:'', L:4.5, A:1.85, placed:false, x:0, y:0, rot:0, spot:null}, p);
+  return Object.assign({id:uid(), kind:'car', matricula:'', marca:'', modelo:'', version:'', anio:'', km:'', precio:'', combustible:'Gasolina', color:'', estado:estadoBase(), notas:'', L:4.5, A:1.85, placed:false, x:0, y:0, rot:0, spot:null}, p);
 }
 function sampleState(){
   const s = blankState();
@@ -382,7 +410,7 @@ function spotPrefix(label){ const m = String(label || '').match(/^\D*/); return 
 
 /* Modo «local»: el plano vive en este navegador. Modo «shared»: vive en la base de datos
    de la web y todos los que la abren ven y editan el mismo plano en tiempo real. */
-const META_KEYS = ['name', 'W', 'H', 'grid', 'snap', 'sample', 'cats'];
+const META_KEYS = ['name', 'W', 'H', 'grid', 'snap', 'sample', 'cats', 'estados'];
 let mode = 'local', canWrite = true;
 function lsGet(k){ try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
@@ -677,7 +705,7 @@ function overlaps(){
 
 /* ---------- Colores ---------- */
 function cssv(k){ return getComputedStyle(document.documentElement).getPropertyValue(k).trim(); }
-function estadoColor(e){ return {'Disponible':cssv('--ok'), 'Reservado':cssv('--warn'), 'En preparación':cssv('--info'), 'Vendido':cssv('--bad')}[e] || cssv('--idle'); }
+function estadoColor(e){ return estadoDef(e).color; }
 const FUEL_C = {'Gasolina':'#d9822b','Diésel':'#55606e','Híbrido':'#2a9d8f','Híbrido enchufable':'#3a7bd5','Eléctrico':'#4caf50','GLP':'#8e5cc2'};
 function hashStr(s){ let h = 0; for (const ch of s) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return h; }
 function priceRange(){ const p = objs('car').map(c => +c.precio).filter(v => v > 0); return p.length ? [Math.min(...p), Math.max(...p)] : [0, 1]; }
@@ -811,7 +839,7 @@ function renderPlan(opts = {}){
         E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill, stroke:shade(fill, .62), 'stroke-width':.06}),
         E('rect', {x:L/2 - 1.2, y:-A/2 + .16, width:.34, height:A - .32, rx:.12, fill:'rgba(0,0,0,.1)'}),
         E('rect', {x:-L/2 + .22, y:-A/2 + .22, width:.22, height:A - .44, rx:.08, fill:'rgba(0,0,0,.12)'}),
-        o.estado === 'Vendido' ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null
+        isSold(o) ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null
       ]);
       const r = ((o.rot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
       const bw = (vert ? A : L) - .3, bh = (vert ? L : A) - .25;
@@ -819,7 +847,7 @@ function renderPlan(opts = {}){
       const cap = Math.floor(bh / (fs * 1.3));
       const price = +o.precio ? eur.format(+o.precio) : '';
       const extra = [o.anio, +o.km ? nf.format(+o.km) + ' km' : ''].filter(Boolean).join(' · ');
-      const est = o.estado !== 'Disponible' && S.colorBy !== 'estado' ? o.estado : '';
+      const est = !isDefaultEstado(o) && S.colorBy !== 'estado' ? o.estado : '';
       let rows;
       if (cap >= 6) rows = [[sp ? 'Plaza ' + sp.label : '', .8, 600, fplate], [plate(o), 1.15, 700, fplate], [o.marca, 1, 600], [o.modelo, 1, 500], [extra, .82, 500], [price, 1.12, 700], [est, .8, 700]];
       else if (cap >= 4) rows = [[(sp ? sp.label + ' · ' : '') + plate(o), 1.1, 700, fplate], [carTitle(o), 1, 500], [extra, .82, 500], [[price, est].filter(Boolean).join(' · '), 1.05, 700]];
@@ -865,7 +893,7 @@ function renderLegend(){
   const lg = $('#legend'); lg.replaceChildren();
   const chip = (c, t) => { const d = document.createElement('span'); d.className = 'chip'; const i = document.createElement('i'); i.style.background = c; d.append(i, t); lg.append(d); };
   const placed = objs('car').filter(c => c.placed);
-  if (S.colorBy === 'estado') ESTADOS.forEach(e => chip(estadoColor(e), e));
+  if (S.colorBy === 'estado') estados().forEach(e => chip(e.color, e.name));
   else if (S.colorBy === 'combustible') COMBUS.filter(f => placed.some(c => c.combustible === f)).forEach(f => chip(FUEL_C[f], f));
   else if (S.colorBy === 'marca') [...new Set(placed.map(c => c.marca).filter(Boolean))].sort(natural).slice(0, 14).forEach(m => chip(BRAND_PAL[hashStr(m.toLowerCase()) % BRAND_PAL.length], m));
   else if (S.colorBy === 'precio') { const pr = priceRange(); chip(priceColor(pr[0], pr), eur.format(pr[0])); chip(priceColor((pr[0] + pr[1]) / 2, pr), eur.format((pr[0] + pr[1]) / 2)); chip(priceColor(pr[1], pr), eur.format(pr[1])); }
@@ -895,7 +923,7 @@ function renderList(){
     const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = estadoColor(c.estado);
     const t = document.createElement('div'); t.className = 't';
     const b = document.createElement('b'); b.textContent = plate(c);
-    const s = document.createElement('div'); s.textContent = (catName(c) ? catName(c) + ' · ' : '') + carTitle(c) + (c.anio ? ` · ${c.anio}` : '') + (c.estado !== 'Disponible' ? ` · ${c.estado}` : '');
+    const s = document.createElement('div'); s.textContent = (catName(c) ? catName(c) + ' · ' : '') + carTitle(c) + (c.anio ? ` · ${c.anio}` : '') + (!isDefaultEstado(c) ? ` · ${c.estado}` : '');
     t.append(b, s);
     const r = document.createElement('div'); r.className = 'r';
     const p = document.createElement('span'); p.textContent = +c.precio ? eur.format(+c.precio) : '—'; r.append(p);
@@ -913,14 +941,14 @@ function renderList(){
 function renderStats(){
   const spots = objs('spot'), cars = objs('car');
   const occ = spots.filter(s => carInSpot(s.id)).length;
-  const exp = cars.filter(c => c.estado !== 'Vendido');
+  const exp = cars.filter(c => !isSold(c));
   const st = $('#stats'); st.replaceChildren();
   [[`${occ}/${spots.length}`, 'plazas ocupadas'], [spots.length - occ, 'plazas libres'], [exp.filter(c => !c.placed).length, 'coches sin colocar']].forEach(([v, l]) => {
     const d = document.createElement('div'); d.className = 'stat'; const b = document.createElement('b'); b.textContent = v; const s = document.createElement('small'); s.textContent = l; d.append(b, s); st.append(d);
   });
   const al = $('#alerts'); al.replaceChildren();
   const add = (txt, cls, ids) => { const b = document.createElement('button'); b.className = 'alert ' + cls; b.textContent = txt; b.onclick = () => { sel = new Set(ids); render(); focusOn(ids); }; al.append(b); };
-  const sold = cars.filter(c => c.placed && c.estado === 'Vendido');
+  const sold = cars.filter(c => c.placed && isSold(c));
   if (sold.length) add(`${sold.length} ${sold.length === 1 ? 'coche vendido sigue' : 'coches vendidos siguen'} en el plano`, 'bad', sold.map(c => c.id));
   const bad = [...overlaps()];
   if (bad.length) add(`${bad.length} coches se pisan entre sí`, 'bad', bad);
@@ -995,7 +1023,8 @@ function renderProps(){
              field(o, 'precio', 'Precio (€)', 'number', {step:100, min:0}),
              field(o, 'cat', 'Categoría', 'select', {options:[{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))]}),
              catEditBtn(),
-             field(o, 'estado', 'Estado', 'select', {options:ESTADOS}),
+             field(o, 'estado', 'Estado', 'select', {options:[...ESTADOS_LIST(), ...(ESTADOS_LIST().includes(o.estado) ? [] : [o.estado])]}),
+             editBtn('Editar estados…', openEstados),
              field(o, 'combustible', 'Combustible', 'select', {options:COMBUS}),
              field(o, 'color', 'Color', 'text', {list:'dl-colores'}),
              field(o, 'notas', 'Notas', 'textarea', {full:true}))));
@@ -1032,6 +1061,11 @@ function renderProps(){
     if (n.car > 0) {
       const iC = mkSelect('mc-cat', [{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))], '');
       const carIds = items.filter(isCar).map(c => c.id);
+      const iE = mkSelect('mc-est', ESTADOS_LIST().map(x => ({v:x, n:x})), estadoBase());
+      P.append(section(`Estado de los ${n.car} coches`, mkField('Estado', iE, true), actions(btn('Cambiar estado', () => {
+        mutate(() => carIds.forEach(id => { const c = byId(id); if (c) c.estado = iE.value; }));
+        toast(`${carIds.length} coches en «${iE.value}».`);
+      }, 'primary'), editBtn('Editar estados…', openEstados))));
       P.append(section(`Categoría de los ${n.car} coches`, mkField('Categoría', iC, true), actions(btn('Asignar categoría', () => {
         mutate(() => carIds.forEach(id => { const c = byId(id); if (c) c.cat = iC.value; }));
         toast(iC.value ? `${carIds.length} coches en «${(catById(iC.value) || {}).name}».` : 'Categoría quitada.');
@@ -1351,7 +1385,13 @@ $('#list').addEventListener('click', e => {
   render(); const c = byId(id); if (c && c.placed) focusOn([id]);
 });
 $('#q').addEventListener('input', e => { filter.q = e.target.value.trim(); renderList(); });
-ESTADOS.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; $('#fEstado').append(o); });
+function renderEstadoFilter(){
+  const sel = $('#fEstado'), cur = filter.estado; sel.replaceChildren();
+  const add = (v, n) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.append(o); };
+  add('', 'Todos los estados'); ESTADOS_LIST().forEach(n => add(n, n));
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : ''; filter.estado = sel.value;
+}
+$('#bEstados').onclick = () => openEstados();
 $('#fEstado').addEventListener('change', e => { filter.estado = e.target.value; renderList(); });
 $('#fCat').addEventListener('change', e => { filter.cat = e.target.value; renderList(); });
 $('#bCats').onclick = () => openCats();
@@ -1482,7 +1522,7 @@ function openSort(){
   const who = document.createElement('div'); who.className = 'choices';
   who.append(mkRadio('o-who', 'rows', 'Los coches que ya están en esas filas y los que están sin colocar', true), mkRadio('o-who', 'all', 'Todos los coches, también los que están en otras filas o sueltos', false));
   const opts = document.createElement('div'); opts.className = 'choices';
-  opts.append(mkCheck('o-sold', 'Retirar del plano los coches vendidos', true), mkCheck('o-res', 'No mover los coches reservados', true), mkCheck('o-prep', 'Incluir coches en preparación', false));
+  opts.append(mkCheck('o-sold', 'Retirar del plano los coches vendidos', true), mkCheck('o-res', 'No mover los coches reservados', true), mkCheck('o-prep', 'Incluir los coches fuera de exposición (preparación, taller…)', false));
   const sum = document.createElement('div'); sum.className = 'summary';
   const body = [mkField('Ordenar por', crit, true), P('Se rellenan las plazas en orden: fila A primero (A1, A2, A3…), luego B, y así. Marca qué filas usar:'), rowsBox, P('¿Qué coches entran?'), who, opts, sum];
   const read = () => ({crit:crit.value, rows:new Set([...rowsBox.querySelectorAll('input:checked')].map(i => i.value)), who:document.querySelector('input[name="o-who"]:checked')?.value || 'rows', sold:$('#o-sold').checked, keepRes:$('#o-res').checked, prep:$('#o-prep').checked});
@@ -1494,16 +1534,16 @@ function planSort(o, dry){
   const spotsSel = sortedSpots(objs('spot').filter(s => o.rows.has(spotPrefix(s.label))));
   const selIds = new Set(spotsSel.map(s => s.id));
   const cars = objs('car');
-  const fixed = o.keepRes ? cars.filter(c => c.estado === 'Reservado' && c.placed && c.spot && selIds.has(c.spot)) : [];
+  const fixed = o.keepRes ? cars.filter(c => tipoDe(c) === 'reservado' && c.placed && c.spot && selIds.has(c.spot)) : [];
   const fixedSpots = new Set(fixed.map(c => c.spot));
   const free = spotsSel.filter(s => !fixedSpots.has(s.id));
-  const pool = cars.filter(c => !fixed.includes(c) && c.estado !== 'Vendido' && (o.prep || c.estado !== 'En preparación') &&
+  const pool = cars.filter(c => !fixed.includes(c) && !isSold(c) && (o.prep || tipoDe(c) !== 'fuera') &&
     (o.who === 'all' || !c.placed || (c.spot && selIds.has(c.spot))));
   if (dry) return {cars:pool.length, spots:free.length};
   const cmp = CRITERIOS.find(c => c.v === o.crit).f;
   let placedN = 0, left = 0;
   mutate(() => {
-    if (o.sold) cars.filter(c => c.estado === 'Vendido').forEach(c => { c.placed = false; c.spot = null; });
+    if (o.sold) cars.filter(c => isSold(c)).forEach(c => { c.placed = false; c.spot = null; });
     // los que ocupan plazas seleccionadas y no entran en el reparto (vendidos o en preparación) se retiran
     cars.filter(c => c.placed && c.spot && selIds.has(c.spot) && !fixed.includes(c) && !pool.includes(c)).forEach(c => { c.placed = false; c.spot = null; });
     const sorted = pool.slice().sort((a, b) => cmp(a, b) || natural(a.matricula, b.matricula));
@@ -1517,7 +1557,8 @@ function planSort(o, dry){
 }
 
 // Categorías
-function catEditBtn(){ const b = btn('Editar categorías…', () => openCats()); b.classList.add('linkish'); const w = document.createElement('div'); w.className = 'f'; const l = document.createElement('label'); l.innerHTML = '&nbsp;'; w.append(l, b); return w; }
+function editBtn(txt, fn){ const b = btn(txt, () => fn()); b.classList.add('linkish'); const w = document.createElement('div'); w.className = 'f'; const l = document.createElement('label'); l.innerHTML = '&nbsp;'; w.append(l, b); return w; }
+function catEditBtn(){ return editBtn('Editar categorías…', openCats); }
 function openCats(){
   if (!canWrite) { mutate(() => {}); return; }
   let work = clone(cats());
@@ -1553,6 +1594,52 @@ function openCats(){
     }, 'primary')]);
 }
 
+// Estados
+function openEstados(){
+  if (!canWrite) { mutate(() => {}); return; }
+  let work = clone(estados()).map(e => Object.assign(e, {orig:e.name, key:uid()}));
+  const list = document.createElement('div'); list.className = 'catlist';
+  const sug = document.createElement('div'); sug.className = 'rows-check';
+  const count = name => objs('car').filter(c => c.estado === name).length;
+  const draw = () => {
+    list.replaceChildren();
+    work.forEach((k, i) => {
+      const row = document.createElement('div'); row.className = 'catrow est';
+      const col = document.createElement('input'); col.type = 'color'; col.value = k.color; col.id = 'est-c-' + k.key; col.setAttribute('aria-label', 'Color'); col.oninput = () => { k.color = col.value; };
+      const nm = document.createElement('input'); nm.type = 'text'; nm.value = k.name; nm.id = 'est-n-' + k.key; nm.maxLength = 30; nm.setAttribute('aria-label', 'Nombre del estado'); nm.oninput = () => { k.name = nm.value; };
+      const tp = mkSelect('est-t-' + k.key, TIPOS_ESTADO.map(t => ({v:t.v, n:t.n})), k.tipo); tp.className = 'tipo'; tp.title = TIPOS_ESTADO.map(t => `${t.n}: ${t.d}`).join('\n'); tp.onchange = () => { k.tipo = tp.value; };
+      const n = document.createElement('span'); n.className = 'catn'; const cn = k.orig ? count(k.orig) : 0; n.textContent = cn === 1 ? '1 coche' : `${cn} coches`;
+      const up = btn('↑', () => { if (i) { [work[i - 1], work[i]] = [work[i], work[i - 1]]; draw(); } }); up.classList.add('icon'); up.disabled = !i; up.title = 'Subir';
+      const del = btn('Borrar', () => { if (work.length < 2) { toast('Tiene que quedar al menos un estado.'); return; } work = work.filter(x => x !== k); draw(); }, 'danger');
+      row.append(col, nm, tp, n, up, del); list.append(row);
+    });
+    sug.replaceChildren();
+    EST_SUGERENCIAS.filter(([nm]) => !work.some(k => norm(k.name) === norm(nm))).forEach(([nm, tipo, color]) => sug.append(btn('+ ' + nm, () => { work.push({name:nm, color, tipo, key:uid()}); draw(); })));
+  };
+  const iNew = mkInput('est-new', 'text', '', {placeholder:'Nombre del nuevo estado', maxLength:30});
+  const iTipo = mkSelect('est-new-t', TIPOS_ESTADO.map(t => ({v:t.v, n:t.n})), 'expo');
+  const addE = () => { const nm = iNew.value.trim(); if (!nm) return; if (work.some(k => norm(k.name) === norm(nm))) { toast('Ya existe ese estado.'); return; } const used = new Set(work.map(k => k.color)); work.push({name:nm, tipo:iTipo.value, color:CAT_PAL.find(c => !used.has(c)) || '#8a8f8c', key:uid()}); iNew.value = ''; draw(); iNew.focus(); };
+  iNew.addEventListener('keydown', e => { if (e.key === 'Enter') addE(); });
+  const addRow = document.createElement('div'); addRow.className = 'search'; addRow.append(iNew, iTipo, btn('Añadir', addE, 'primary'));
+  const help = document.createElement('div'); help.className = 'keys';
+  TIPOS_ESTADO.forEach(t => { const a = document.createElement('b'); a.textContent = t.n; const b = document.createElement('span'); b.textContent = t.d; help.append(a, b); });
+  draw();
+  modal('Estados de los coches', [P('Crea los estados que uséis en la exposición. El comportamiento le dice al programa qué hacer con los coches de ese estado:'), help, list, addRow, P('Sugerencias:'), sug],
+    [btn('Cancelar', closeModal), btn('Guardar', () => {
+      const names = work.map(k => (k.name || '').trim());
+      if (names.some(n => !n)) { toast('Hay un estado sin nombre.'); return; }
+      if (new Set(names.map(norm)).size !== names.length) { toast('Hay dos estados con el mismo nombre.'); return; }
+      const clean = work.map(k => ({name:k.name.trim(), color:k.color, tipo:k.tipo}));
+      const renames = new Map(work.filter(k => k.orig && k.orig !== k.name.trim()).map(k => [k.orig, k.name.trim()]));
+      mutate(() => {
+        S.estados = clean;
+        const valid = new Set(clean.map(e => e.name)), base = (clean.find(e => e.tipo === 'expo') || clean[0]).name;
+        for (const c of objs('car')) { if (renames.has(c.estado)) c.estado = renames.get(c.estado); if (!valid.has(c.estado)) c.estado = base; }
+      });
+      closeModal(); toast('Estados guardados.');
+    }, 'primary')]);
+}
+
 // Importar stock
 const HEAD = {
   matricula:['matricula','matrícula','placa','plate','bastidor'], marca:['marca','brand','make'], modelo:['modelo','model'], version:['version','versión','acabado'],
@@ -1577,7 +1664,17 @@ function parseCSV(text){
   return rows.filter(r => r.some(c => c.trim()));
 }
 function toNum(v){ if (v == null) return ''; let s = String(v).replace(/[€\s]/g, '').replace(/km/i, ''); if (!s) return ''; if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/[.,](?=\d{3}(\D|$))/g, ''); const n = parseFloat(s); return isNaN(n) ? '' : n; }
-function canonEstado(v){ const n = norm(v); if (!n) return 'Disponible'; if (n.startsWith('vend')) return 'Vendido'; if (n.startsWith('reserv') || n.startsWith('senal')) return 'Reservado'; if (n.includes('prepar') || n.includes('taller')) return 'En preparación'; return 'Disponible'; }
+function canonEstado(v){
+  const n = norm(v); if (!n) return estadoBase();
+  const ex = estados().find(e => norm(e.name) === n); if (ex) return ex.name;
+  const porTipo = t => (estados().find(e => e.tipo === t) || {}).name;
+  if (n.startsWith('vend')) return porTipo('vendido') || estadoBase();
+  if (n.startsWith('reserv') || n.startsWith('senal')) return porTipo('reservado') || estadoBase();
+  if (n.includes('prepar') || n.includes('taller')) return porTipo('fuera') || estadoBase();
+  if (n.startsWith('dispon') || n.startsWith('libre') || n.startsWith('venta')) return estadoBase();
+  // estado nuevo que viene del Excel: se crea
+  const nm = String(v).trim(); S.estados = [...estados(), {name:nm, color:CAT_PAL[estados().length % CAT_PAL.length], tipo:'expo'}]; return nm;
+}
 function canonFuel(v){ const n = norm(v); if (!n) return 'Gasolina'; if (n.includes('enchuf') || n.includes('phev') || n.includes('plug')) return 'Híbrido enchufable'; if (n.includes('hibr') || n.includes('hybr') || n.includes('hev')) return 'Híbrido'; if (n.includes('elect') || n === 'ev' || n.includes('bev')) return 'Eléctrico'; if (n.includes('glp') || n.includes('lpg') || n.includes('gnc')) return 'GLP'; if (n.includes('dies') || n.includes('gasoil') || n.includes('tdi') || n.includes('hdi')) return 'Diésel'; return 'Gasolina'; }
 function ensureCat(name){
   const ex = cats().find(k => norm(k.name) === norm(name)); if (ex) return ex.id;
@@ -1719,7 +1816,7 @@ function openImage(){
 /* ---------- Render general ---------- */
 function render(opts = {}){
   const typing = opts.remote && document.activeElement && $('#props').contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  renderCatFilter(); renderPlan(); renderList(); if (!typing) renderProps(); renderStats(); renderLegend();
+  renderCatFilter(); renderEstadoFilter(); renderPlan(); renderList(); if (!typing) renderProps(); renderStats(); renderLegend();
   $('#bUndo').disabled = !undoS.length; $('#bRedo').disabled = !redoS.length;
   $('#colorBy').value = S.colorBy;
 }
