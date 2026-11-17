@@ -113,6 +113,7 @@ aside.right{border-left:1px solid var(--line)}
 .note{font-size:12.5px;background:var(--accent-soft);border-radius:8px;padding:10px;display:flex;flex-direction:column;gap:8px}
 .note .row{display:flex;gap:6px;flex-wrap:wrap}
 .search{display:flex;gap:6px}
+.search #fCat{flex:1}
 .search input,.search select{min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 8px;font-size:13px}
 .search input{flex:1}
 .list{display:flex;flex-direction:column;padding:4px 8px 16px}
@@ -173,6 +174,12 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 .rows-check label{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:7px;padding:4px 8px;font-size:13px}
 .summary{font-size:13px;padding:8px 10px;border-radius:8px;background:var(--accent-soft)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;z-index:60;max-width:calc(100% - 32px)}
+.catlist{display:flex;flex-direction:column;gap:6px}
+.catrow{display:grid;grid-template-columns:40px minmax(0,1fr) auto auto auto;gap:8px;align-items:center}
+.catrow input[type=text]{min-width:0;border:1px solid var(--line);background:var(--bg);border-radius:7px;padding:6px 8px;font-size:13px}
+.catrow input[type=color]{width:40px;height:32px;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--bg);cursor:pointer}
+.catn{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.btn.linkish{justify-content:center}
 .imgprev{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
 
 @media (max-width: 980px){
@@ -223,6 +230,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
         <option value="combustible">Combustible</option>
         <option value="marca">Marca</option>
         <option value="precio">Precio</option>
+        <option value="categoria">Categoría</option>
         <option value="color">Color real</option>
       </select>
     </label>
@@ -249,6 +257,10 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
       <div class="search">
         <input id="q" type="search" placeholder="Matrícula, marca, modelo…" aria-label="Buscar coche">
         <select id="fEstado" aria-label="Filtrar por estado"><option value="">Todos</option></select>
+      </div>
+      <div class="search">
+        <select id="fCat" aria-label="Filtrar por categoría"></select>
+        <button class="btn" id="bCats" title="Crear y editar categorías">Categorías</button>
       </div>
     </section>
     <div class="list" id="list"></div>
@@ -297,7 +309,12 @@ let S = null;           // estado del plano
 let sel = new Set();    // ids seleccionados
 let undoS = [], redoS = [];
 let view = {x:-3, y:-3, w:60, h:40};
-let filter = {q:'', estado:''};
+let filter = {q:'', estado:'', cat:''};
+const CAT_PAL = ['#2f6fb3','#c4572f','#2f8f6e','#8a5bb5','#c79a1e','#3b8fa8','#b3466f','#5f7f2a','#8a6a4a','#4a5fb8','#a8453b','#2e8a8a'];
+const CAT_SUGERENCIAS = ['SUV', 'Compacto', 'Berlina', 'Utilitario', 'Familiar', 'Monovolumen', 'Premium', 'Deportivo', 'Eco / Eléctrico', 'Km 0', 'Furgoneta', 'Oferta'];
+const cats = () => Array.isArray(S.cats) ? S.cats : [];
+const catById = id => id ? cats().find(c => c.id === id) || null : null;
+const catName = c => (catById(c.cat) || {}).name || '';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -307,7 +324,7 @@ const r2 = v => Math.round(v * 100) / 100;
 
 /* ---------- Datos ---------- */
 function blankState(){
-  return {v:1, name:'Exposición', W:50, H:34, grid:true, snap:0.25, colorBy:'estado', sample:false, objs:[]};
+  return {v:1, name:'Exposición', W:50, H:34, grid:true, snap:0.25, colorBy:'estado', sample:false, cats:[], objs:[]};
 }
 function newCar(p = {}){
   return Object.assign({id:uid(), kind:'car', matricula:'', marca:'', modelo:'', version:'', anio:'', km:'', precio:'', combustible:'Gasolina', color:'', estado:'Disponible', notas:'', L:4.5, A:1.85, placed:false, x:0, y:0, rot:0, spot:null}, p);
@@ -365,7 +382,7 @@ function spotPrefix(label){ const m = String(label || '').match(/^\D*/); return 
 
 /* Modo «local»: el plano vive en este navegador. Modo «shared»: vive en la base de datos
    de la web y todos los que la abren ven y editan el mismo plano en tiempo real. */
-const META_KEYS = ['name', 'W', 'H', 'grid', 'snap', 'sample'];
+const META_KEYS = ['name', 'W', 'H', 'grid', 'snap', 'sample', 'cats'];
 let mode = 'local', canWrite = true;
 function lsGet(k){ try { return localStorage.getItem(k); } catch (e) { return null; } }
 function lsSet(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
@@ -676,6 +693,7 @@ function carFill(c, pr){
     case 'marca': return c.marca ? BRAND_PAL[hashStr(c.marca.toLowerCase()) % BRAND_PAL.length] : cssv('--idle');
     case 'precio': return priceColor(+c.precio, pr);
     case 'color': return realColor(c.color) || cssv('--idle');
+    case 'categoria': return (catById(c.cat) || {}).color || cssv('--idle');
     default: return estadoColor(c.estado);
   }
 }
@@ -851,12 +869,14 @@ function renderLegend(){
   else if (S.colorBy === 'combustible') COMBUS.filter(f => placed.some(c => c.combustible === f)).forEach(f => chip(FUEL_C[f], f));
   else if (S.colorBy === 'marca') [...new Set(placed.map(c => c.marca).filter(Boolean))].sort(natural).slice(0, 14).forEach(m => chip(BRAND_PAL[hashStr(m.toLowerCase()) % BRAND_PAL.length], m));
   else if (S.colorBy === 'precio') { const pr = priceRange(); chip(priceColor(pr[0], pr), eur.format(pr[0])); chip(priceColor((pr[0] + pr[1]) / 2, pr), eur.format((pr[0] + pr[1]) / 2)); chip(priceColor(pr[1], pr), eur.format(pr[1])); }
+  else if (S.colorBy === 'categoria') { cats().filter(k => placed.some(c => c.cat === k.id)).forEach(k => chip(k.color, k.name)); if (placed.some(c => !catById(c.cat))) chip(cssv('--idle'), 'Sin categoría'); if (!cats().length) chip(cssv('--idle'), 'Aún no hay categorías'); }
   else if (S.colorBy === 'color') [...new Set(placed.map(c => (c.color || '').trim()).filter(Boolean))].sort(natural).forEach(n => chip(realColor(n) || cssv('--idle'), n));
 }
 
 /* ---------- Lista lateral ---------- */
 function matches(c){
   if (filter.estado && c.estado !== filter.estado) return false;
+  if (filter.cat === '__none' ? catById(c.cat) : filter.cat && c.cat !== filter.cat) return false;
   if (!filter.q) return true;
   const q = filter.q.toLowerCase().replace(/\s+/g, '');
   return [c.matricula, c.marca, c.modelo, c.version, c.color, c.combustible, c.spot && byId(c.spot)?.label].some(v => String(v || '').toLowerCase().replace(/\s+/g, '').includes(q));
@@ -875,7 +895,7 @@ function renderList(){
     const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = estadoColor(c.estado);
     const t = document.createElement('div'); t.className = 't';
     const b = document.createElement('b'); b.textContent = plate(c);
-    const s = document.createElement('div'); s.textContent = carTitle(c) + (c.anio ? ` · ${c.anio}` : '') + (c.estado !== 'Disponible' ? ` · ${c.estado}` : '');
+    const s = document.createElement('div'); s.textContent = (catName(c) ? catName(c) + ' · ' : '') + carTitle(c) + (c.anio ? ` · ${c.anio}` : '') + (c.estado !== 'Disponible' ? ` · ${c.estado}` : '');
     t.append(b, s);
     const r = document.createElement('div'); r.className = 'r';
     const p = document.createElement('span'); p.textContent = +c.precio ? eur.format(+c.precio) : '—'; r.append(p);
@@ -973,6 +993,8 @@ function renderProps(){
              field(o, 'anio', 'Año', 'number', {step:1}),
              field(o, 'km', 'Kilómetros', 'number', {step:100, min:0}),
              field(o, 'precio', 'Precio (€)', 'number', {step:100, min:0}),
+             field(o, 'cat', 'Categoría', 'select', {options:[{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))]}),
+             catEditBtn(),
              field(o, 'estado', 'Estado', 'select', {options:ESTADOS}),
              field(o, 'combustible', 'Combustible', 'select', {options:COMBUS}),
              field(o, 'color', 'Color', 'text', {list:'dl-colores'}),
@@ -1007,6 +1029,14 @@ function renderProps(){
     const s = section(`${items.length} elementos`, kv('Selección', parts));
     s.append(actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), n.car ? btn('Retirar coches del plano', () => unplace(items.filter(isCar).map(c => c.id))) : null, (n.spot + n.zone + n.text) ? confirmBtn('Borrar (no coches)', deleteSel) : null));
     P.append(s);
+    if (n.car > 0) {
+      const iC = mkSelect('mc-cat', [{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))], '');
+      const carIds = items.filter(isCar).map(c => c.id);
+      P.append(section(`Categoría de los ${n.car} coches`, mkField('Categoría', iC, true), actions(btn('Asignar categoría', () => {
+        mutate(() => carIds.forEach(id => { const c = byId(id); if (c) c.cat = iC.value; }));
+        toast(iC.value ? `${carIds.length} coches en «${(catById(iC.value) || {}).name}».` : 'Categoría quitada.');
+      }, 'primary'), catEditBtn())));
+    }
     if (n.spot > 1) {
       const sps = items.filter(o => o.kind === 'spot');
       const same = k => sps.every(x => x[k] === sps[0][k]) ? sps[0][k] : '';
@@ -1323,6 +1353,14 @@ $('#list').addEventListener('click', e => {
 $('#q').addEventListener('input', e => { filter.q = e.target.value.trim(); renderList(); });
 ESTADOS.forEach(s => { const o = document.createElement('option'); o.value = s; o.textContent = s; $('#fEstado').append(o); });
 $('#fEstado').addEventListener('change', e => { filter.estado = e.target.value; renderList(); });
+$('#fCat').addEventListener('change', e => { filter.cat = e.target.value; renderList(); });
+$('#bCats').onclick = () => openCats();
+function renderCatFilter(){
+  const sel = $('#fCat'); const cur = filter.cat; sel.replaceChildren();
+  const add = (v, n) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.append(o); };
+  add('', 'Todas las categorías'); cats().forEach(k => add(k.id, k.name)); if (cats().length) add('__none', 'Sin categoría');
+  sel.value = [...sel.options].some(o => o.value === cur) ? cur : ''; filter.cat = sel.value;
+}
 
 // Teclado
 document.addEventListener('keydown', e => {
@@ -1429,6 +1467,7 @@ const CRITERIOS = [
   {v:'anio', n:'Año: los más nuevos primero', f:(a, b) => (+b.anio || 0) - (+a.anio || 0) || (+a.km - +b.km)},
   {v:'km', n:'Kilómetros: los que menos tienen primero', f:(a, b) => (+a.km || 1e12) - (+b.km || 1e12)},
   {v:'combustible', n:'Combustible, y dentro por precio', f:(a, b) => COMBUS.indexOf(a.combustible) - COMBUS.indexOf(b.combustible) || (+a.precio - +b.precio)},
+  {v:'categoria', n:'Categoría, y dentro de cada una por precio', f:(a, b) => { const i = c => { const k = cats().findIndex(x => x.id === c.cat); return k < 0 ? 999 : k; }; return i(a) - i(b) || (+a.precio - +b.precio); }},
   {v:'color', n:'Color (agrupa los del mismo color)', f:(a, b) => natural(a.color, b.color) || (+a.precio - +b.precio)}
 ];
 function openSort(){
@@ -1477,11 +1516,48 @@ function planSort(o, dry){
   return {placedN, left};
 }
 
+// Categorías
+function catEditBtn(){ const b = btn('Editar categorías…', () => openCats()); b.classList.add('linkish'); const w = document.createElement('div'); w.className = 'f'; const l = document.createElement('label'); l.innerHTML = '&nbsp;'; w.append(l, b); return w; }
+function openCats(){
+  if (!canWrite) { mutate(() => {}); return; }
+  let work = clone(cats());
+  const list = document.createElement('div'); list.className = 'catlist';
+  const sug = document.createElement('div'); sug.className = 'rows-check';
+  const count = id => objs('car').filter(c => c.cat === id).length;
+  const draw = () => {
+    list.replaceChildren();
+    if (!work.length) { const e = document.createElement('p'); e.textContent = 'Todavía no hay categorías. Crea la primera abajo o elige una sugerencia.'; list.append(e); }
+    work.forEach((k, i) => {
+      const row = document.createElement('div'); row.className = 'catrow';
+      const col = document.createElement('input'); col.type = 'color'; col.value = k.color; col.id = 'cat-c-' + k.id; col.setAttribute('aria-label', 'Color de ' + k.name); col.oninput = () => { k.color = col.value; };
+      const nm = document.createElement('input'); nm.type = 'text'; nm.value = k.name; nm.id = 'cat-n-' + k.id; nm.maxLength = 30; nm.setAttribute('aria-label', 'Nombre de la categoría'); nm.oninput = () => { k.name = nm.value; };
+      const n = document.createElement('span'); n.className = 'catn'; const cn = count(k.id); n.textContent = cn === 1 ? '1 coche' : `${cn} coches`;
+      const up = btn('↑', () => { if (i) { [work[i - 1], work[i]] = [work[i], work[i - 1]]; draw(); } }); up.title = 'Subir (el orden se usa al ordenar la exposición)'; up.classList.add('icon'); up.disabled = !i;
+      const del = btn('Borrar', () => { work = work.filter(x => x !== k); draw(); }, 'danger');
+      row.append(col, nm, n, up, del); list.append(row);
+    });
+    sug.replaceChildren();
+    CAT_SUGERENCIAS.filter(nm => !work.some(k => norm(k.name) === norm(nm))).forEach(nm => { const b = btn('+ ' + nm, () => { addCat(nm); }); sug.append(b); });
+  };
+  const addCat = nm => { nm = nm.trim(); if (!nm) return; if (work.some(k => norm(k.name) === norm(nm))) { toast('Ya existe esa categoría.'); return; } const used = new Set(work.map(k => k.color)); work.push({id:uid(), name:nm, color:CAT_PAL.find(c => !used.has(c)) || CAT_PAL[work.length % CAT_PAL.length]}); draw(); };
+  const iNew = mkInput('cat-new', 'text', '', {placeholder:'Nombre de la nueva categoría', maxLength:30});
+  iNew.addEventListener('keydown', e => { if (e.key === 'Enter') { addCat(iNew.value); iNew.value = ''; } });
+  const addRow = document.createElement('div'); addRow.className = 'search'; addRow.append(iNew, btn('Añadir', () => { addCat(iNew.value); iNew.value = ''; iNew.focus(); }, 'primary'));
+  draw();
+  modal('Categorías', [P('Agrupa los coches como queráis: por tipo, gama, campaña… Luego puedes colorear el plano por categoría, filtrar la lista y ordenar la exposición por categoría.'), list, addRow, P('Sugerencias:'), sug],
+    [btn('Cancelar', closeModal), btn('Guardar', () => {
+      const clean = work.map(k => ({id:k.id, name:(k.name || '').trim() || 'Sin nombre', color:k.color}));
+      const ids = new Set(clean.map(k => k.id));
+      mutate(() => { S.cats = clean; for (const c of objs('car')) if (c.cat && !ids.has(c.cat)) c.cat = ''; });
+      closeModal(); toast('Categorías guardadas.');
+    }, 'primary')]);
+}
+
 // Importar stock
 const HEAD = {
   matricula:['matricula','matrícula','placa','plate','bastidor'], marca:['marca','brand','make'], modelo:['modelo','model'], version:['version','versión','acabado'],
   anio:['año','ano','anio','year','matriculacion','fecha'], km:['km','kms','kilometros','kilómetros','kilometraje'], precio:['precio','pvp','price','importe','precio venta'],
-  combustible:['combustible','fuel','motor'], color:['color','colour'], estado:['estado','status','situacion','situación'], notas:['notas','observaciones','comentarios']
+  combustible:['combustible','fuel','motor'], color:['color','colour'], estado:['estado','status','situacion','situación'], cat:['categoria','categoría','segmento','tipo','carroceria','carrocería','category'], notas:['notas','observaciones','comentarios']
 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, '').trim();
 function parseCSV(text){
@@ -1503,6 +1579,11 @@ function parseCSV(text){
 function toNum(v){ if (v == null) return ''; let s = String(v).replace(/[€\s]/g, '').replace(/km/i, ''); if (!s) return ''; if (/,\d{1,2}$/.test(s)) s = s.replace(/\./g, '').replace(',', '.'); else s = s.replace(/[.,](?=\d{3}(\D|$))/g, ''); const n = parseFloat(s); return isNaN(n) ? '' : n; }
 function canonEstado(v){ const n = norm(v); if (!n) return 'Disponible'; if (n.startsWith('vend')) return 'Vendido'; if (n.startsWith('reserv') || n.startsWith('senal')) return 'Reservado'; if (n.includes('prepar') || n.includes('taller')) return 'En preparación'; return 'Disponible'; }
 function canonFuel(v){ const n = norm(v); if (!n) return 'Gasolina'; if (n.includes('enchuf') || n.includes('phev') || n.includes('plug')) return 'Híbrido enchufable'; if (n.includes('hibr') || n.includes('hybr') || n.includes('hev')) return 'Híbrido'; if (n.includes('elect') || n === 'ev' || n.includes('bev')) return 'Eléctrico'; if (n.includes('glp') || n.includes('lpg') || n.includes('gnc')) return 'GLP'; if (n.includes('dies') || n.includes('gasoil') || n.includes('tdi') || n.includes('hdi')) return 'Diésel'; return 'Gasolina'; }
+function ensureCat(name){
+  const ex = cats().find(k => norm(k.name) === norm(name)); if (ex) return ex.id;
+  if (!Array.isArray(S.cats)) S.cats = [];
+  const k = {id:uid(), name:name.trim(), color:CAT_PAL[S.cats.length % CAT_PAL.length]}; S.cats = [...S.cats, k]; return k.id;
+}
 function importCars(text){
   const rows = parseCSV(text); if (rows.length < 2) return {error:'No encuentro filas. La primera fila tiene que ser la cabecera (Matrícula, Marca, Modelo, Precio…).'};
   const head = rows[0].map(norm); const map = {};
@@ -1520,6 +1601,7 @@ function importCars(text){
       if (map.precio != null) d.precio = toNum(g('precio'));
       if (map.combustible != null) d.combustible = canonFuel(g('combustible'));
       if (map.estado != null) d.estado = canonEstado(g('estado'));
+      if (map.cat != null) { const nm = g('cat'); d.cat = nm ? ensureCat(nm) : ''; }
       for (const k of Object.keys(d)) if (map[k] == null && k !== 'matricula') delete d[k];
       const ex = d.matricula && byPlate.get(norm(d.matricula).replace(/ /g, ''));
       if (ex) { Object.assign(ex, d); updated++; }
@@ -1534,7 +1616,7 @@ function openImport(){
   fi.onchange = () => { const f = fi.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { let t = rd.result; if (t.includes('\uFFFD')) { const r2_ = new FileReader(); r2_.onload = () => { ta.value = r2_.result; }; r2_.readAsText(f, 'windows-1252'); } else ta.value = t; }; rd.readAsText(f, 'utf-8'); };
   modal('Importar stock', [
     P('Desde Excel: selecciona la tabla (con la fila de títulos) y pégala aquí, o guarda el Excel como «CSV (delimitado por punto y coma)» y elige el archivo.'),
-    P('Columnas que entiendo: Matrícula, Marca, Modelo, Versión, Año, Km, Precio, Combustible, Color, Estado y Notas. Si una matrícula ya existe, se actualizan sus datos y se queda en su plaza. Los coches nuevos van a «Sin colocar».'),
+    P('Columnas que entiendo: Matrícula, Marca, Modelo, Versión, Año, Km, Precio, Combustible, Color, Estado, Categoría (o Segmento) y Notas. Las categorías que no existan se crean solas. Si una matrícula ya existe, se actualizan sus datos y se queda en su plaza. Los coches nuevos van a «Sin colocar».'),
     mkField('Archivo CSV', fi, true), mkField('O pega aquí los datos', ta, true)
   ], [btn('Cancelar', closeModal), btn('Importar', () => {
     const r = importCars(ta.value);
@@ -1562,8 +1644,8 @@ function fileSafe(s){ return norm(s).replace(/ +/g, '-') || 'plano'; }
 function listingCSV(){
   const cars = objs('car').slice().sort((a, b) => { const la = a.placed ? (a.spot ? byId(a.spot)?.label : 'zz') : 'zzz', lb = b.placed ? (b.spot ? byId(b.spot)?.label : 'zz') : 'zzz'; return natural(la, lb); });
   const q = v => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const lines = [['Plaza','Matrícula','Marca','Modelo','Versión','Año','Km','Precio','Combustible','Color','Estado','Notas'].join(';')];
-  for (const c of cars) lines.push([c.placed ? (c.spot ? byId(c.spot)?.label : 'Fuera de plaza') : 'Sin colocar', c.matricula, c.marca, c.modelo, c.version, c.anio, c.km, c.precio, c.combustible, c.color, c.estado, c.notas].map(q).join(';'));
+  const lines = [['Plaza','Matrícula','Categoría','Marca','Modelo','Versión','Año','Km','Precio','Combustible','Color','Estado','Notas'].join(';')];
+  for (const c of cars) lines.push([c.placed ? (c.spot ? byId(c.spot)?.label : 'Fuera de plaza') : 'Sin colocar', c.matricula, catName(c), c.marca, c.modelo, c.version, c.anio, c.km, c.precio, c.combustible, c.color, c.estado, c.notas].map(q).join(';'));
   return '﻿' + lines.join('\r\n');
 }
 function openFile(){
@@ -1637,7 +1719,7 @@ function openImage(){
 /* ---------- Render general ---------- */
 function render(opts = {}){
   const typing = opts.remote && document.activeElement && $('#props').contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
-  renderPlan(); renderList(); if (!typing) renderProps(); renderStats(); renderLegend();
+  renderCatFilter(); renderPlan(); renderList(); if (!typing) renderProps(); renderStats(); renderLegend();
   $('#bUndo').disabled = !undoS.length; $('#bRedo').disabled = !redoS.length;
   $('#colorBy').value = S.colorBy;
 }
