@@ -35,6 +35,7 @@
   color-scheme:dark;
 }
 *{box-sizing:border-box}
+[hidden]{display:none!important}
 html,body{height:100%}
 body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.4 var(--font-ui);display:flex;flex-direction:column;overflow:hidden}
 button,input,select,textarea{font:inherit;color:inherit}
@@ -67,6 +68,21 @@ button{cursor:pointer}
   .add .lbl b{text-align:center}
   .add .lbl small{display:none}
 }
+.sync{font-size:11.5px;font-weight:600;padding:3px 9px 3px 8px;border-radius:999px;display:inline-flex;align-items:center;gap:6px;background:var(--bg);border:1px solid var(--line);white-space:nowrap}
+.sync::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--idle)}
+.sync[data-st="ok"]::before{background:var(--ok)}
+.sync[data-st="wait"]::before{background:var(--warn)}
+.sync[data-st="bad"]::before{background:var(--bad)}
+.sync[data-st="ro"]::before{background:var(--info)}
+.syncwho{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.brand{flex-wrap:wrap}
+.stagemsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb,var(--bg) 70%,transparent)}
+.msgcard{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:20px 22px;max-width:460px;display:flex;flex-direction:column;gap:10px;box-shadow:0 10px 30px rgba(0,0,0,.12)}
+.msgcard h3{margin:0;font:700 18px/1.2 var(--font-head)}
+.msgcard p{margin:0;color:var(--muted);font-size:13.5px}
+.msgcard .actions{flex-direction:column;align-items:stretch}
+body.readonly #props .f,body.readonly #props .actions{pointer-events:none;opacity:.6}
+body.readonly .addbar,body.readonly #bSort,body.readonly #bImport,body.readonly #bUndo,body.readonly #bRedo,body.readonly .item .place{display:none}
 .btn{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--panel);border-radius:7px;padding:6px 10px;font-weight:500;font-size:13px;white-space:nowrap}
 .btn:hover{border-color:var(--muted)}
 .btn:disabled{opacity:.4;cursor:default}
@@ -176,7 +192,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 </head>
 <body>
 <header class="bar">
-  <div class="brand"><h1>Plano de Exposición</h1><span id="planName"></span></div>
+  <div class="brand"><h1>Plano de Exposición</h1><span id="planName"></span><span class="sync" id="sync" data-st="wait" title="Dónde se guarda el plano"></span><span class="syncwho" id="syncWho"></span></div>
   <div class="tools">
     <div class="addbar" role="group" aria-label="Añadir">
       <button class="add add-car" id="bAddCar" title="Añadir un coche al stock">
@@ -238,6 +254,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
     <svg id="plan" xmlns="http://www.w3.org/2000/svg" aria-label="Plano de la exposición"></svg>
     <div class="overlay hint">Arrastra para mover · rueda para zoom · arrastra el fondo para desplazar · Mayús + arrastrar para seleccionar varios</div>
     <div class="overlay legend" id="legend"></div>
+    <div class="stagemsg" id="stageMsg" hidden></div>
     <div class="overlay zoom">
       <button class="btn icon" id="zIn" title="Acercar">+</button>
       <button class="btn icon" id="zFit" title="Ver todo el plano"><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 6V2h4M10 2h4v4M14 10v4h-4M6 14H2v-4"/></svg></button>
@@ -338,18 +355,179 @@ function carTitle(c){ return [c.marca, c.modelo].filter(Boolean).join(' ') || 'S
 function plate(c){ return (c.matricula || 'SIN MATRÍCULA').toUpperCase(); }
 function spotPrefix(label){ const m = String(label || '').match(/^\D*/); return (m && m[0].trim()) || '#'; }
 
-function persist(){ try { localStorage.setItem(LS_KEY, JSON.stringify(S)); } catch (e) {} }
-function loadSaved(){ try { const t = localStorage.getItem(LS_KEY); if (t) { const s = JSON.parse(t); if (s && Array.isArray(s.objs)) return Object.assign(blankState(), s); } } catch (e) {} return null; }
+/* Modo «local»: el plano vive en este navegador. Modo «shared»: vive en la base de datos
+   de la web y todos los que la abren ven y editan el mismo plano en tiempo real. */
+const META_KEYS = ['name', 'W', 'H', 'grid', 'snap', 'sample'];
+let mode = 'local', canWrite = true;
+function lsGet(k){ try { return localStorage.getItem(k); } catch (e) { return null; } }
+function lsSet(k, v){ try { localStorage.setItem(k, v); } catch (e) {} }
+function persist(){ if (mode === 'local') lsSet(LS_KEY, JSON.stringify(S)); }
+function loadSaved(){ try { const t = lsGet(LS_KEY); if (t) { const s = JSON.parse(t); if (s && Array.isArray(s.objs)) return Object.assign(blankState(), s); } } catch (e) {} return null; }
 
-function mutate(fn){
-  undoS.push(JSON.stringify(S)); if (undoS.length > 100) undoS.shift();
-  redoS = [];
-  fn();
-  persist(); render();
+function snapMap(){ const m = new Map(); for (const o of S.objs) m.set(o.id, JSON.stringify(o)); m.set('__meta', JSON.stringify(META_KEYS.map(k => S[k]))); return m; }
+function diffMaps(a, b){
+  const d = {}; let n = 0;
+  for (const [k, v] of b) if (a.get(k) !== v) { d[k] = [a.has(k) ? a.get(k) : null, v]; n++; }
+  for (const [k, v] of a) if (!b.has(k)) { d[k] = [v, null]; n++; }
+  return n ? d : null;
 }
-function pushUndoRaw(snap){ undoS.push(snap); if (undoS.length > 100) undoS.shift(); redoS = []; }
-function undo(){ if (!undoS.length) return; redoS.push(JSON.stringify(S)); S = JSON.parse(undoS.pop()); prune(); persist(); render(); }
-function redo(){ if (!redoS.length) return; undoS.push(JSON.stringify(S)); S = JSON.parse(redoS.pop()); prune(); persist(); render(); }
+function applyVals(d, idx){
+  for (const k in d) {
+    const v = d[k][idx];
+    if (k === '__meta') { if (v) { const arr = JSON.parse(v); META_KEYS.forEach((key, i) => { S[key] = arr[i]; }); } continue; }
+    const i = S.objs.findIndex(o => o.id === k);
+    if (v == null) { if (i >= 0) S.objs.splice(i, 1); }
+    else { const o = JSON.parse(v); if (i >= 0) S.objs[i] = o; else S.objs.push(o); }
+  }
+}
+function commit(before, full){
+  const d = diffMaps(before, snapMap());
+  if (d) { undoS.push(d); if (undoS.length > 100) undoS.shift(); redoS = []; queueSync(d, 1, full); persist(); }
+  render();
+  if (pendingRemote) applyRemote();
+}
+function mutate(fn, full){
+  if (mode === 'connecting') { toast('Un momento, estoy cargando el plano compartido.'); return; }
+  if (!canWrite) { toast('Solo puedes ver este plano. Pide a quien lo comparte permiso de «Colaborador» para editarlo.'); render(); return; }
+  const before = snapMap(); fn(); commit(before, full);
+}
+function undo(){ if (!undoS.length || !canWrite) return; const d = undoS.pop(); applyVals(d, 0); redoS.push(d); queueSync(d, 0); persist(); prune(); render(); }
+function redo(){ if (!redoS.length || !canWrite) return; const d = redoS.pop(); applyVals(d, 1); undoS.push(d); queueSync(d, 1); persist(); prune(); render(); }
+
+/* ---------- Plano compartido ---------- */
+let db = null, docRef = null, docExists = false, pending = null, forceFull = false, writing = false;
+let userCap = null, myId = null, remoteData = null, pendingRemote = false, loaded = false, retryT = null, dl = null;
+const DOC_PATH = 'planos/principal';
+function fullDoc(){ const o = {v:1, objs:{}}; META_KEYS.forEach(k => { o[k] = S[k]; }); for (const x of S.objs) o.objs[x.id] = x; return o; }
+function queueSync(d, idx, full){
+  if (mode !== 'shared') return;
+  if (full) forceFull = true;
+  pending = pending || {objs:{}};
+  for (const k in d) {
+    const v = d[k][idx];
+    if (k === '__meta') { if (v) { const arr = JSON.parse(v); META_KEYS.forEach((key, i) => { pending[key] = arr[i]; }); } }
+    else pending.objs[k] = v == null ? null : JSON.parse(v);
+  }
+  flush();
+}
+function mergePatch(a, b){ if (!a) return b; if (!b) return a; const r = Object.assign({}, a, b); r.objs = Object.assign({}, a.objs, b.objs); return r; }
+async function flush(){
+  if (writing || (!pending && !forceFull) || !docRef) return;
+  writing = true; clearTimeout(retryT);
+  const p = pending, full = forceFull || !docExists; pending = null; forceFull = false;
+  setSync('saving');
+  const stampInfo = {lastAt:new Date().toISOString()}; if (myId) stampInfo.lastBy = myId;
+  try {
+    if (full) {
+      const body = Object.assign(fullDoc(), stampInfo);
+      if (JSON.stringify(body).length > 250000) throw {code:'quota_exceeded'};
+      await docRef.set(body); docExists = true;
+    } else await docRef.update(Object.assign({}, p, stampInfo));
+    setSync('ok');
+  } catch (e) {
+    const code = e && e.code;
+    if (code === 'invalid_argument' && !full) { forceFull = true; pending = mergePatch(p, pending); }
+    else if (code === 'invalid_argument') { canWrite = false; setSync('readonly'); render(); toast('No tienes permiso para editar este plano: lo ves en modo lectura.'); }
+    else if (code === 'quota_exceeded') { setSync('error'); toast('El plano es demasiado grande para guardarlo. Borra coches vendidos antiguos y vuelve a intentarlo.'); }
+    else if (code === 'revoked') { canWrite = false; setSync('readonly'); render(); }
+    else { pending = mergePatch(p, pending); if (full) forceFull = true; setSync('error'); retryT = setTimeout(flush, 4000 + Math.random() * 2000); }
+  }
+  writing = false;
+  if (pending || forceFull) { if (!retryT || canWrite) flush(); }
+}
+function applyRemote(){
+  if (!remoteData) return;
+  if (drag) { pendingRemote = true; return; }
+  pendingRemote = false;
+  const data = remoteData;
+  const ns = blankState(); META_KEYS.forEach(k => { if (data[k] !== undefined) ns[k] = data[k]; });
+  ns.colorBy = S.colorBy;
+  ns.objs = Object.values(data.objs || {}).filter(Boolean).map(o => clone(o));
+  S = ns;
+  if (pending) { for (const k in pending.objs) { const i = S.objs.findIndex(o => o.id === k); const v = pending.objs[k]; if (v == null) { if (i >= 0) S.objs.splice(i, 1); } else if (i >= 0) S.objs[i] = clone(v); else S.objs.push(clone(v)); } META_KEYS.forEach(k => { if (pending[k] !== undefined) S[k] = pending[k]; }); }
+  prune(); render({remote:true}); showLastChange(data);
+}
+async function showLastChange(data){
+  const el = $('#syncWho'); if (!el) return;
+  if (!data || !data.lastAt) { el.textContent = ''; return; }
+  const mins = Math.round((Date.now() - Date.parse(data.lastAt)) / 60000);
+  const when = mins < 1 ? 'ahora mismo' : mins < 60 ? `hace ${mins} min` : mins < 1440 ? `hace ${Math.round(mins / 60)} h` : new Date(data.lastAt).toLocaleDateString('es-ES');
+  let who = '';
+  if (data.lastBy && userCap) {
+    if (data.lastBy === myId) who = 'tú';
+    else { try { const ps = await userCap.profiles([data.lastBy]); who = (ps && ps[data.lastBy] && ps[data.lastBy].name) || ''; } catch (e) {} }
+  }
+  el.textContent = `Último cambio ${who ? 'de ' + who + ' ' : ''}${when}`;
+}
+function setSync(st){
+  const el = $('#sync'); if (!el) return;
+  const T = {local:['Solo en este navegador', 'local'], connecting:['Conectando…', 'wait'], saving:['Guardando…', 'wait'], ok:['Compartido · guardado', 'ok'], error:['Sin conexión · reintentando', 'bad'], readonly:['Compartido · solo lectura', 'ro']}[st];
+  el.textContent = T[0]; el.dataset.st = T[1];
+  document.body.classList.toggle('readonly', st === 'readonly' || !canWrite);
+}
+function stageMsg(kind){
+  const box = $('#stageMsg'); box.replaceChildren(); box.hidden = !kind;
+  if (!kind) return;
+  const card = document.createElement('div'); card.className = 'msgcard';
+  const h = document.createElement('h3'), p = document.createElement('p');
+  if (kind === 'loading') { h.textContent = 'Cargando el plano compartido…'; p.textContent = 'Un momento.'; card.append(h, p); }
+  else if (kind === 'slow') { h.textContent = 'No consigo conectar todavía'; p.textContent = 'Sigo intentándolo. Si no carga, revisa la conexión a internet.'; card.append(h, p); }
+  else if (kind === 'empty') {
+    h.textContent = 'Todavía no hay plano compartido';
+    p.textContent = canWrite ? 'Lo que hagas aquí lo verán y podrán cambiar tus compañeros que tengan el enlace. ¿Cómo quieres empezar?' : 'Quien comparte la página aún no ha dibujado el plano. Vuelve más tarde.';
+    card.append(h, p);
+    if (canWrite) {
+      const row = document.createElement('div'); row.className = 'actions';
+      row.append(btn('Dibujar mi exposición', () => openNewPlan(), 'primary'));
+      const local = loadSaved();
+      if (local && local.objs.length && !local.sample) {
+        const nc = local.objs.filter(isCar).length, ns = local.objs.filter(o => o.kind === 'spot').length;
+        row.append(btn(`Subir el plano de este navegador (${ns} plazas, ${nc} coches)`, () => { mutate(() => { S = Object.assign(local, {colorBy:S.colorBy}); sel.clear(); }, true); fit(); }));
+      }
+      row.append(btn('Probar con un ejemplo', () => { mutate(() => { const c = S.colorBy; S = sampleState(); S.colorBy = c; sel.clear(); }, true); fit(); toast('Ejemplo cargado. Cuando acabes de probar, pulsa «Empezar mi plano».'); }));
+      card.append(row);
+    }
+  }
+  box.append(card);
+}
+async function connect(){
+  setSync('connecting'); stageMsg('loading');
+  let slowT = setTimeout(() => stageMsg('slow'), 10000);
+  try { db = await window.claude.use('db'); } catch (e) { db = null; }
+  try { dl = await window.claude.use('downloads'); } catch (e) { dl = null; }
+  if (!db) { clearTimeout(slowT); startLocal(); return; }
+  try { userCap = await window.claude.use('user'); } catch (e) { userCap = null; }
+  if (userCap) {
+    try { myId = await userCap.id(); } catch (e) {}
+    try { const w = await userCap.can('data.write'); if (w === false) canWrite = false; } catch (e) {}
+  }
+  mode = 'shared';
+  docRef = db.doc(DOC_PATH);
+  docRef.onSnapshot(snap => {
+    if (!snap.exists) {
+      if (snap.metadata.fromCache) return;
+      clearTimeout(slowT); docExists = false; remoteData = null;
+      if (!loaded) { const c = S.colorBy; S = blankState(); S.colorBy = c; loaded = true; render(); fit(); }
+      if (!S.objs.length) stageMsg('empty');
+      setSync(canWrite ? 'ok' : 'readonly');
+      return;
+    }
+    clearTimeout(slowT); docExists = true; stageMsg(null);
+    remoteData = snap.data();
+    const first = !loaded; loaded = true;
+    applyRemote();
+    if (first) { fit(); setSync(canWrite ? 'ok' : 'readonly'); }
+  }, err => {
+    clearTimeout(slowT);
+    if (err && err.code === 'revoked') { canWrite = false; setSync('readonly'); return; }
+    setSync('error'); toast('Se ha perdido la conexión con el plano compartido. Recarga la página.');
+  });
+}
+function startLocal(){
+  mode = 'local'; stageMsg(null);
+  S = loadSaved() || sampleState(); persist();
+  setSync('local'); render(); fit();
+}
 function prune(){ for (const id of [...sel]) if (!byId(id)) sel.delete(id); }
 
 /* ---------- Geometría ---------- */
@@ -607,7 +785,7 @@ function renderStats(){
     d.append('Esto es un plano de ejemplo con coches inventados para que pruebes. Cuando quieras, empieza el tuyo.');
     const row = document.createElement('div'); row.className = 'row';
     const b1 = document.createElement('button'); b1.className = 'btn primary'; b1.textContent = 'Empezar mi plano'; b1.onclick = openNewPlan;
-    const b2 = document.createElement('button'); b2.className = 'btn'; b2.textContent = 'Seguir probando'; b2.onclick = () => { S.sample = false; persist(); render(); };
+    const b2 = document.createElement('button'); b2.className = 'btn'; b2.textContent = 'Seguir probando'; b2.onclick = () => mutate(() => { S.sample = false; });
     row.append(b1, b2); d.append(row); n.append(d);
   }
   $('#planName').textContent = S.name || '';
@@ -627,7 +805,7 @@ function field(o, key, label, type = 'text', extra = {}){
     let v = type === 'checkbox' ? inp.checked : inp.value;
     if (type === 'number') { v = v === '' ? '' : +v; if (extra.min != null && v !== '' && v < extra.min) v = extra.min; }
     if (key === 'matricula') v = String(v).toUpperCase().trim();
-    mutate(() => { o[key] = v; if (extra.after) extra.after(o); });
+    mutate(() => { const t = o.id ? byId(o.id) : (o.kind === undefined && 'W' in o ? S : o); if (!t) return; t[key] = v; if (extra.after) extra.after(t); });
   });
   if (type === 'checkbox') w.append(inp, lab); else w.append(lab, inp);
   return w;
@@ -678,7 +856,7 @@ function renderProps(){
         o.placed ? btn('Centrar vista', () => focusOn([o.id])) : null
       ));
       P.append(pos);
-      P.append(section('Borrar', actions(confirmBtn('Eliminar coche del stock', () => mutate(() => { S.objs = S.objs.filter(x => x !== o); sel.clear(); })))));
+      P.append(section('Borrar', actions(confirmBtn('Eliminar coche del stock', () => mutate(() => { S.objs = S.objs.filter(x => x.id !== o.id); sel.clear(); })))));
     } else if (o.kind === 'spot') {
       const c = carInSpot(o.id);
       const s = section('Plaza', grid(field(o, 'label', 'Nombre', 'text', {full:true}), field(o, 'w', 'Fondo (m)', 'number', {step:.1, min:1}), field(o, 'h', 'Ancho (m)', 'number', {step:.1, min:1}), field(o, 'rot', 'Giro (°)', 'number', {step:15})), kv('Ocupada por', c ? `${plate(c)} · ${carTitle(c)}` : 'Libre'));
@@ -704,7 +882,7 @@ function renderProps(){
       g.querySelectorAll('input').forEach(i => i.replaceWith(i.cloneNode(true)));
       const r = section('Renumerar plazas', g, actions(btn('Renumerar de izquierda a derecha', () => {
         const pre = g.querySelector('#p-pre').value.trim(), start = +g.querySelector('#p-start').value || 1;
-        mutate(() => { const sp = items.filter(o => o.kind === 'spot').sort((a, b) => Math.abs(a.y - b.y) > 1.5 ? a.y - b.y : a.x - b.x); sp.forEach((o, i) => { o.label = pre + (start + i); }); });
+        mutate(() => { const sp = items.map(o => byId(o.id)).filter(o => o && o.kind === 'spot').sort((a, b) => Math.abs(a.y - b.y) > 1.5 ? a.y - b.y : a.x - b.x); sp.forEach((o, i) => { o.label = pre + (start + i); }); });
       })));
       P.append(r);
     }
@@ -771,7 +949,8 @@ svg.addEventListener('pointerdown', e => {
   svg.setPointerCapture(e.pointerId);
   if (handle && hit && e.button === 0) {
     const o = byId(hit.dataset.id);
-    drag = {type:'resize', o, snap:JSON.stringify(S), moved:false, start:{x:e.clientX, y:e.clientY}};
+    if (!canWrite) return;
+    drag = {type:'resize', o, before:snapMap(), moved:false, start:{x:e.clientX, y:e.clientY}};
     return;
   }
   if (hit && e.button === 0) {
@@ -782,7 +961,7 @@ svg.addEventListener('pointerdown', e => {
     else deferSelect = true;
     const moving = new Set([...sel].filter(i => { const o = byId(i); return o && (o.kind !== 'car' || o.placed); }));
     for (const c of objs('car')) if (c.placed && c.spot && moving.has(c.spot)) moving.add(c.id);
-    drag = {type:'move', id, p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, deferSelect, snap:JSON.stringify(S),
+    drag = {type:'move', id, p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, deferSelect, before:snapMap(), ro:!canWrite,
             items:[...moving].map(i => { const o = byId(i); return {o, x0:o.x, y0:o.y, spot0:o.spot}; })};
     renderPlan(); renderList(); renderProps();
     return;
@@ -802,6 +981,7 @@ svg.addEventListener('pointermove', e => {
     const r = svg.getBoundingClientRect(), k = view.w / r.width;
     view.x = drag.v0.x - (e.clientX - drag.start.x) * k; view.y = drag.v0.y - (e.clientY - drag.start.y) * k; setViewBox();
   } else if (drag.type === 'move') {
+    if (drag.ro) return;
     const p = pt(e);
     const prim = drag.items.find(it => it.o.id === drag.id) || drag.items[0]; if (!prim) return;
     const dx = snapV(prim.x0 + p.x - drag.p0.x) - prim.x0, dy = snapV(prim.y0 + p.y - drag.p0.y) - prim.y0;
@@ -830,14 +1010,14 @@ function endDrag(e){
   if (!drag) return;
   const d = drag; drag = null; svg.classList.remove('panning');
   svg.querySelectorAll('.stall.hover').forEach(r => r.classList.remove('hover'));
-  if (d.type === 'pan') { if (!d.moved) { sel.clear(); render(); } return; }
+  if (d.type === 'pan') { if (!d.moved) { sel.clear(); render(); } if (pendingRemote) applyRemote(); return; }
   if (d.type === 'marquee') {
     if (d.rect) { sel = new Set(d.base); for (const o of S.objs) if ((o.kind !== 'car' || o.placed) && o.x >= d.rect.x && o.x <= d.rect.x + d.rect.w && o.y >= d.rect.y && o.y <= d.rect.y + d.rect.h) sel.add(o.id); }
-    render(); return;
+    render(); if (pendingRemote) applyRemote(); return;
   }
-  if (d.type === 'resize') { if (d.moved) { pushUndoRaw(d.snap); persist(); } render(); return; }
+  if (d.type === 'resize') { if (d.moved) commit(d.before); else render(); if (pendingRemote) applyRemote(); return; }
   if (d.type === 'move') {
-    if (!d.moved) { if (d.deferSelect) sel = new Set([d.id]); render(); return; }
+    if (!d.moved || d.ro) { if (d.deferSelect) sel = new Set([d.id]); render(); if (pendingRemote) applyRemote(); return; }
     const movingIds = new Set(d.items.map(it => it.o.id));
     let swapped = null;
     for (const it of d.items) {
@@ -856,7 +1036,7 @@ function endDrag(e){
         placeInSpot(c, s);
       } else c.spot = null;
     }
-    pushUndoRaw(d.snap); persist(); render();
+    commit(d.before);
     if (swapped) toast(`Intercambiado con ${plate(swapped)}.`);
   }
 }
@@ -1113,7 +1293,12 @@ function openImport(){
 }
 
 // Guardar / abrir
-function download(name, text, type){
+async function download(name, text, type){
+  if (dl) {
+    try { await dl.save({filename:name, data:text}); }
+    catch (e) { const c = e && e.code; if (c === 'declined') return; if (c === 'rate_limited') toast('Ya hay una descarga esperando: acéptala o recházala primero.'); else toast('No se ha podido descargar aquí. Usa el botón «Copiar».'); }
+    return;
+  }
   try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], {type})); a.download = name; document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); } catch (e) {}
 }
 function copyText(text, ta){
@@ -1140,7 +1325,7 @@ function openFile(){
   fi.onchange = () => { const f = fi.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { taIn.value = rd.result; }; rd.readAsText(f); };
   const h = t => { const e = document.createElement('h4'); e.textContent = t; e.style.cssText = 'margin:6px 0 0;font:600 14px var(--font-head)'; return e; };
   modal('Guardar / abrir', [
-    P('El plano se guarda solo en este navegador. Guarda una copia para pasarlo a otro ordenador o por si se borran los datos del navegador.'),
+    P(mode === 'shared' ? 'El plano se guarda solo y lo comparten todos los que abren esta página. Aun así, guarda una copia de vez en cuando por si alguien lo borra sin querer.' : 'El plano se guarda solo en este navegador. Guarda una copia para pasarlo a otro ordenador o por si se borran los datos del navegador.'),
     h('Copia de seguridad del plano'),
     actions(btn('Descargar copia (.json)', () => download(`${fileSafe(S.name)}-${stamp()}.json`, json, 'application/json'), 'primary'), btn('Copiar al portapapeles', () => copyText(json, taOut))), taOut,
     h('Listado por plazas para Excel'),
@@ -1148,7 +1333,7 @@ function openFile(){
     h('Abrir una copia'),
     mkField('Archivo', fi, true), taIn,
     actions(btn('Abrir copia', () => {
-      try { const s = JSON.parse(taIn.value); if (!s || !Array.isArray(s.objs)) throw 0; mutate(() => { S = Object.assign(blankState(), s); sel.clear(); }); closeModal(); fit(); toast('Copia abierta. Si te equivocas, Ctrl+Z lo deshace.'); }
+      try { const s = JSON.parse(taIn.value); if (!s || !Array.isArray(s.objs)) throw 0; mutate(() => { const c = S.colorBy; S = Object.assign(blankState(), s); S.colorBy = c; sel.clear(); }, true); closeModal(); fit(); toast('Copia abierta. Si te equivocas, Ctrl+Z lo deshace.'); }
       catch (e) { toast('Ese texto no es una copia válida del plano.'); }
     })),
     h('Empezar de cero'),
@@ -1163,11 +1348,11 @@ function openNewPlan(){
   modal('Plano nuevo', [P('Mide el recinto (ancho × fondo en metros). Lo puedes cambiar después.'), grid(mkField('Nombre', iN, true), mkField('Ancho (m)', iW), mkField('Fondo (m)', iH)), keep], [btn('Cancelar', closeModal), btn('Crear plano', () => {
     const k = document.querySelector('input[name="n-keep"]:checked').value;
     mutate(() => {
-      const old = S.objs, wasSample = S.sample; S = blankState(); S.name = iN.value.trim() || 'Exposición'; S.W = Math.max(5, +iW.value || 50); S.H = Math.max(5, +iH.value || 34);
+      const old = S.objs, wasSample = S.sample, cb = S.colorBy; S = blankState(); S.colorBy = cb; S.name = iN.value.trim() || 'Exposición'; S.W = Math.max(5, +iW.value || 50); S.H = Math.max(5, +iH.value || 34);
       if (k === 'cars' && !wasSample) S.objs = old.filter(isCar).map(c => Object.assign(c, {placed:false, spot:null}));
       if (k === 'layout') S.objs = old.filter(o => !isCar(o));
       sel.clear();
-    });
+    }, true);
     closeModal(); fit(); toast('Plano creado. Dibuja las plazas con «+ Fila de plazas».');
   }, 'primary')]);
 }
@@ -1188,16 +1373,18 @@ function openImage(){
   img.onload = () => {
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H; cv.getContext('2d').drawImage(img, 0, 0); URL.revokeObjectURL(url);
     let data = ''; try { data = cv.toDataURL('image/png'); } catch (e) {}
+    let pngBlob = null; try { cv.toBlob(b => { pngBlob = b; }, 'image/png'); } catch (e) {}
     const out = document.createElement('img'); out.className = 'imgprev'; out.alt = 'Imagen del plano'; out.src = data || url;
-    modal('Imagen del plano', [P('Haz clic derecho sobre la imagen (o mantén pulsado en el móvil) y elige «Guardar imagen» o «Copiar imagen» para mandarla por WhatsApp o correo.'), out], [btn('Descargar PNG', () => { if (!data) return; const a = document.createElement('a'); a.href = data; a.download = `${fileSafe(S.name)}-${stamp()}.png`; document.body.append(a); a.click(); a.remove(); }, 'primary')]);
+    modal('Imagen del plano', [P('Haz clic derecho sobre la imagen (o mantén pulsado en el móvil) y elige «Guardar imagen» o «Copiar imagen» para mandarla por WhatsApp o correo.'), out], [btn('Descargar PNG', () => { const name = `${fileSafe(S.name)}-${stamp()}.png`; if (dl) { if (pngBlob) download(name, pngBlob); return; } if (!data) return; const a = document.createElement('a'); a.href = data; a.download = name; document.body.append(a); a.click(); a.remove(); }, 'primary')]);
   };
   img.onerror = () => toast('No he podido generar la imagen en este navegador.');
   img.src = url;
 }
 
 /* ---------- Render general ---------- */
-function render(){
-  renderPlan(); renderList(); renderProps(); renderStats(); renderLegend();
+function render(opts = {}){
+  const typing = opts.remote && document.activeElement && $('#props').contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
+  renderPlan(); renderList(); if (!typing) renderProps(); renderStats(); renderLegend();
   $('#bUndo').disabled = !undoS.length; $('#bRedo').disabled = !redoS.length;
   $('#colorBy').value = S.colorBy;
 }
@@ -1224,7 +1411,7 @@ $('#bImg').onclick = openImage;
 $('#bPrint').onclick = () => { const k = sel; sel = new Set(); fit(); renderPlan({clean:true}); window.print(); sel = k; render(); };
 let inFrame = false; try { inFrame = window.self !== window.top; } catch (e) { inFrame = true; }
 if (inFrame) $('#bPrint').hidden = true;
-$('#colorBy').onchange = e => { S.colorBy = e.target.value; persist(); render(); };
+$('#colorBy').onchange = e => { S.colorBy = e.target.value; lsSet(LS_KEY + '-color', S.colorBy); persist(); render(); };
 $('#zIn').onclick = () => { const [x, y] = centerView(); zoomAt(1 / 1.3, x, y); };
 $('#zOut').onclick = () => { const [x, y] = centerView(); zoomAt(1.3, x, y); };
 $('#zFit').onclick = fit;
@@ -1232,10 +1419,14 @@ new ResizeObserver(() => setViewBox()).observe(svg);
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => render()); } catch (e) {}
 new MutationObserver(() => render()).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
 
-S = loadSaved() || sampleState();
-persist();
-render();
-requestAnimationFrame(fit);
+if (window.claude && typeof window.claude.use === 'function') {
+  mode = 'connecting'; S = blankState(); S.colorBy = lsGet(LS_KEY + '-color') || 'estado';
+  render(); requestAnimationFrame(fit);
+  connect();
+} else {
+  S = loadSaved() || sampleState(); persist();
+  setSync('local'); render(); requestAnimationFrame(fit);
+}
 })();
 </script>
 </body>
