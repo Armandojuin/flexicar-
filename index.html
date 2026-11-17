@@ -1067,7 +1067,7 @@ function importCars(text){
 function openImport(){
   const ta = document.createElement('textarea'); ta.id = 'imp-text'; ta.placeholder = 'Matrícula;Marca;Modelo;Año;Km;Precio;Combustible;Color;Estado\n1234 ABC;Seat;León;2021;45000;16900;Gasolina;Blanco;Disponible';
   const fi = mkInput('imp-file', 'file', ''); fi.accept = '.csv,.txt,.tsv,text/csv,text/plain';
-  fi.onchange = () => { const f = fi.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { let t = rd.result; if (t.includes('�')) { const r2_ = new FileReader(); r2_.onload = () => { ta.value = r2_.result; }; r2_.readAsText(f, 'windows-1252'); } else ta.value = t; }; rd.readAsText(f, 'utf-8'); };
+  fi.onchange = () => { const f = fi.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { let t = rd.result; if (t.includes('\uFFFD')) { const r2_ = new FileReader(); r2_.onload = () => { ta.value = r2_.result; }; r2_.readAsText(f, 'windows-1252'); } else ta.value = t; }; rd.readAsText(f, 'utf-8'); };
   modal('Importar stock', [
     P('Desde Excel: selecciona la tabla (con la fila de títulos) y pégala aquí, o guarda el Excel como «CSV (delimitado por punto y coma)» y elige el archivo.'),
     P('Columnas que entiendo: Matrícula, Marca, Modelo, Versión, Año, Km, Precio, Combustible, Color, Estado y Notas. Si una matrícula ya existe, se actualizan sus datos y se queda en su plaza. Los coches nuevos van a «Sin colocar».'),
