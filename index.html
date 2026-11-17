@@ -255,7 +255,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
   </aside>
   <div class="stage" id="stage">
     <svg id="plan" xmlns="http://www.w3.org/2000/svg" aria-label="Plano de la exposición"></svg>
-    <div class="overlay hint">Arrastra para mover · rueda para zoom · arrastra el fondo para desplazar · Mayús + arrastrar para seleccionar varios</div>
+    <div class="overlay hint">Arrastra en el fondo para seleccionar · rueda para desplazar · Ctrl + rueda para zoom</div>
     <div class="overlay legend" id="legend"></div>
     <div class="stagemsg" id="stageMsg" hidden></div>
     <div class="overlay zoom">
@@ -946,7 +946,7 @@ function renderProps(){
            field(S, 'snap', 'Imán', 'select', {options:[{v:0, n:'Sin imán'}, {v:0.1, n:'10 cm'}, {v:0.25, n:'25 cm'}, {v:0.5, n:'50 cm'}, {v:1, n:'1 m'}], after:o => { o.snap = +o.snap; }}),
            field(S, 'grid', 'Cuadrícula', 'checkbox'))));
     const k = document.createElement('div'); k.className = 'keys';
-    [['Clic', 'seleccionar'], ['Mayús + clic', 'añadir a la selección'], ['Doble clic en plaza', 'seleccionar su fila entera'], ['Arrastrar', 'mover (en una plaza se encaja; sobre otro coche, se intercambian)'], ['R', 'girar 90°'], ['Flechas', 'mover 10 cm (Mayús: 1 m)'], ['Supr', 'retirar del plano / borrar'], ['Ctrl + D', 'duplicar'], ['Ctrl + Z', 'deshacer']].forEach(([a, b]) => { const x = document.createElement('kbd'); x.textContent = a; const y = document.createElement('span'); y.textContent = b; k.append(x, y); });
+    [['Clic', 'seleccionar'], ['Arrastrar en el fondo', 'recuadro para seleccionar varios'], ['Rueda', 'desplazar el plano (Mayús: hacia los lados)'], ['Ctrl + rueda', 'acercar o alejar'], ['Botón central o derecho', 'arrastrar para mover la vista'], ['Mayús + clic', 'añadir a la selección'], ['Doble clic en plaza', 'seleccionar su fila entera'], ['Arrastrar', 'mover (en una plaza se encaja; sobre otro coche, se intercambian)'], ['R', 'girar 90°'], ['Flechas', 'mover 10 cm (Mayús: 1 m)'], ['Supr', 'retirar del plano / borrar'], ['Ctrl + D', 'duplicar'], ['Ctrl + Z', 'deshacer']].forEach(([a, b]) => { const x = document.createElement('kbd'); x.textContent = a; const y = document.createElement('span'); y.textContent = b; k.append(x, y); });
     P.append(section('Atajos', k));
   } else if (items.length === 1) {
     const o = items[0];
@@ -1131,18 +1131,20 @@ function pt(e){ const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY
 function gEl(id){ return svg.querySelector(`[data-id="${id}"]`); }
 
 svg.addEventListener('pointerdown', e => {
-  if (e.button !== 0 && e.button !== 1) return;
+  if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
   const p = pt(e);
+  // mover la vista: rueda del ratón, o arrastrar con el botón central / derecho / barra espaciadora; en pantallas táctiles, con el dedo
+  const panGesture = e.button === 1 || e.button === 2 || spaceDown || (e.pointerType === 'touch' && !multiMode);
   const handle = e.target.closest('[data-handle]');
   const hit = e.target.closest('[data-id]');
   svg.setPointerCapture(e.pointerId);
-  if (handle && hit && e.button === 0) {
+  if (handle && hit && e.button === 0 && !spaceDown) {
     const o = byId(hit.dataset.id);
     if (!canWrite) return;
     drag = {type:'resize', o, before:snapMap(), moved:false, start:{x:e.clientX, y:e.clientY}};
     return;
   }
-  if (hit && e.button === 0) {
+  if (hit && e.button === 0 && !spaceDown) {
     const id = hit.dataset.id;
     const now = Date.now(), ho = byId(id);
     if (lastDown.id === id && now - lastDown.t < 380 && ho && ho.kind === 'spot' && !multiMode) { lastDown = {}; svg.releasePointerCapture(e.pointerId); selectRow(ho); return; }
@@ -1158,8 +1160,9 @@ svg.addEventListener('pointerdown', e => {
     renderPlan(); renderList(); renderProps();
     return;
   }
-  if ((e.shiftKey || multiMode) && e.button === 0) {
-    drag = {type:'marquee', p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, base:new Set(sel)};
+  if (!panGesture) {
+    // pulsar y arrastrar en el fondo = recuadro de selección (con Mayús se añade a lo que ya hay)
+    drag = {type:'marquee', p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, add:e.shiftKey || multiMode, base:e.shiftKey || multiMode ? new Set(sel) : new Set()};
   } else {
     drag = {type:'pan', start:{x:e.clientX, y:e.clientY}, v0:{...view}, moved:false};
     svg.classList.add('panning');
@@ -1204,6 +1207,7 @@ function endDrag(e){
   svg.querySelectorAll('.stall.hover').forEach(r => r.classList.remove('hover'));
   if (d.type === 'pan') { if (!d.moved) { sel.clear(); render(); } if (pendingRemote) applyRemote(); return; }
   if (d.type === 'marquee') {
+    if (!d.rect && !d.add) sel.clear();
     if (d.rect) { sel = new Set(d.base); for (const o of S.objs) if ((o.kind !== 'car' || o.placed) && o.x >= d.rect.x && o.x <= d.rect.x + d.rect.w && o.y >= d.rect.y && o.y <= d.rect.y + d.rect.h) sel.add(o.id); }
     render(); if (pendingRemote) applyRemote(); return;
   }
@@ -1234,7 +1238,19 @@ function endDrag(e){
 }
 svg.addEventListener('pointerup', endDrag);
 svg.addEventListener('pointercancel', endDrag);
-svg.addEventListener('wheel', e => { e.preventDefault(); const p = pt(e); zoomAt(Math.exp(e.deltaY * (e.ctrlKey ? .01 : .0015)), p.x, p.y); }, {passive:false});
+// rueda = desplazar la vista (Mayús + rueda: hacia los lados); Ctrl + rueda o pellizco en el touchpad = zoom
+svg.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (e.ctrlKey || e.metaKey) { const p = pt(e); zoomAt(Math.exp(Math.max(-40, Math.min(40, e.deltaY)) * .008), p.x, p.y); return; }
+  const r = svg.getBoundingClientRect(), k = view.w / r.width, unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? r.height : 1;
+  let dx = e.deltaX * unit, dy = e.deltaY * unit;
+  if (e.shiftKey && !dx) { dx = dy; dy = 0; }
+  view.x += dx * k; view.y += dy * k; setViewBox();
+}, {passive:false});
+svg.addEventListener('contextmenu', e => e.preventDefault());
+let spaceDown = false;
+document.addEventListener('keydown', e => { if (e.code === 'Space' && !/^(INPUT|TEXTAREA|SELECT|BUTTON)$/.test(e.target.tagName)) { if (!spaceDown) { spaceDown = true; svg.style.cursor = 'grab'; } e.preventDefault(); } });
+document.addEventListener('keyup', e => { if (e.code === 'Space') { spaceDown = false; svg.style.cursor = ''; } });
 
 
 // Soltar coches desde la lista
