@@ -46,7 +46,7 @@ button{cursor:pointer}
 .bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding-block:8px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));background:var(--panel);border-bottom:1px solid var(--line)}
 .brand{display:flex;align-items:baseline;gap:8px;margin-right:6px}
 .brand h1{font:700 17px/1 var(--font-head);margin:0;letter-spacing:-.01em}
-.brand span{color:var(--muted);font-size:12px;max-width:22ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.brand #planName{color:var(--muted);font-size:12px;max-width:22ch;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
 .sep{width:1px;height:22px;background:var(--line)}
 .addbar{display:flex;flex-wrap:wrap;gap:4px;padding:3px;border-radius:12px;background:var(--bg);border:1px solid var(--line)}
@@ -74,6 +74,8 @@ button{cursor:pointer}
 .sync[data-st="wait"]::before{background:var(--warn)}
 .sync[data-st="bad"]::before{background:var(--bad)}
 .sync[data-st="ro"]::before{background:var(--info)}
+.sync.clickable{cursor:pointer;border-color:var(--info)}
+.sync.clickable:hover{background:var(--panel)}
 .syncwho{font-size:11.5px;color:var(--muted);white-space:nowrap}
 .brand{flex-wrap:wrap}
 .stagemsg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:color-mix(in srgb,var(--bg) 70%,transparent)}
@@ -270,6 +272,10 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
+/* Web pública con plano común: pon aquí los datos de tu proyecto de Supabase
+   (Settings > API: «Project URL» y la clave «anon public»). Vacío = sin base de datos. */
+const NUBE = {url:'', clave:''};
+const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
 const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', maximumFractionDigits:0});
 const nf = new Intl.NumberFormat('es-ES');
 const ESTADOS = ['Disponible','Reservado','En preparación','Vendido'];
@@ -388,7 +394,7 @@ function commit(before, full){
 }
 function mutate(fn, full){
   if (mode === 'connecting') { toast('Un momento, estoy cargando el plano compartido.'); return; }
-  if (!canWrite) { toast('Solo puedes ver este plano. Pide a quien lo comparte permiso de «Colaborador» para editarlo.'); render(); return; }
+  if (!canWrite) { if (backend === 'cloud') openPass(); else toast('Solo puedes ver este plano. Pide a quien lo comparte permiso de «Colaborador» para editarlo.'); render(); return; }
   const before = snapMap(); fn(); commit(before, full);
 }
 function undo(){ if (!undoS.length || !canWrite) return; const d = undoS.pop(); applyVals(d, 0); redoS.push(d); queueSync(d, 0); persist(); prune(); render(); }
@@ -397,6 +403,7 @@ function redo(){ if (!redoS.length || !canWrite) return; const d = redoS.pop(); 
 /* ---------- Plano compartido ---------- */
 let db = null, docRef = null, docExists = false, pending = null, forceFull = false, writing = false;
 let userCap = null, myId = null, remoteData = null, pendingRemote = false, loaded = false, retryT = null, dl = null;
+let backend = 'db', sb = null, teamPass = lsGet(LS_KEY + '-clave') || '', myName = lsGet(LS_KEY + '-nombre') || '';
 const DOC_PATH = 'planos/principal';
 function fullDoc(){ const o = {v:1, objs:{}}; META_KEYS.forEach(k => { o[k] = S[k]; }); for (const x of S.objs) o.objs[x.id] = x; return o; }
 function queueSync(d, idx, full){
@@ -412,13 +419,22 @@ function queueSync(d, idx, full){
 }
 function mergePatch(a, b){ if (!a) return b; if (!b) return a; const r = Object.assign({}, a, b); r.objs = Object.assign({}, a.objs, b.objs); return r; }
 async function flush(){
-  if (writing || (!pending && !forceFull) || !docRef) return;
+  if (writing || (!pending && !forceFull) || (!docRef && !sb)) return;
   writing = true; clearTimeout(retryT);
   const p = pending, full = forceFull || !docExists; pending = null; forceFull = false;
   setSync('saving');
   const stampInfo = {lastAt:new Date().toISOString()}; if (myId) stampInfo.lastBy = myId;
   try {
-    if (full) {
+    if (backend === 'cloud') {
+      const meta = {}; META_KEYS.forEach(k => { meta[k] = S[k]; });
+      let fn, cambios;
+      if (full) { fn = 'reemplazar_plano'; cambios = {__meta:meta}; for (const o of S.objs) cambios[o.id] = o; }
+      else { fn = 'guardar_cambios'; cambios = Object.assign({}, p.objs); if (META_KEYS.some(k => k in p)) cambios.__meta = meta; }
+      if (JSON.stringify(cambios).length > 900000) throw {code:'quota_exceeded'};
+      const {error} = await sb.rpc(fn, {p_clave:teamPass, p_cambios:cambios, p_autor:myName || null});
+      if (error) throw {code:/clave incorrecta|28P01/.test((error.message || '') + (error.code || '')) ? 'bad_pass' : 'unavailable', message:error.message};
+      docExists = true;
+    } else if (full) {
       const body = Object.assign(fullDoc(), stampInfo);
       if (JSON.stringify(body).length > 250000) throw {code:'quota_exceeded'};
       await docRef.set(body); docExists = true;
@@ -426,7 +442,8 @@ async function flush(){
     setSync('ok');
   } catch (e) {
     const code = e && e.code;
-    if (code === 'invalid_argument' && !full) { forceFull = true; pending = mergePatch(p, pending); }
+    if (code === 'bad_pass') { pending = mergePatch(p, pending); if (full) forceFull = true; canWrite = false; teamPass = ''; lsSet(LS_KEY + '-clave', ''); setSync('readonly'); render(); writing = false; openPass('La clave del equipo ha cambiado. Escríbela otra vez para guardar tus cambios.'); return; }
+    else if (code === 'invalid_argument' && !full) { forceFull = true; pending = mergePatch(p, pending); }
     else if (code === 'invalid_argument') { canWrite = false; setSync('readonly'); render(); toast('No tienes permiso para editar este plano: lo ves en modo lectura.'); }
     else if (code === 'quota_exceeded') { setSync('error'); toast('El plano es demasiado grande para guardarlo. Borra coches vendidos antiguos y vuelve a intentarlo.'); }
     else if (code === 'revoked') { canWrite = false; setSync('readonly'); render(); }
@@ -453,7 +470,8 @@ async function showLastChange(data){
   const mins = Math.round((Date.now() - Date.parse(data.lastAt)) / 60000);
   const when = mins < 1 ? 'ahora mismo' : mins < 60 ? `hace ${mins} min` : mins < 1440 ? `hace ${Math.round(mins / 60)} h` : new Date(data.lastAt).toLocaleDateString('es-ES');
   let who = '';
-  if (data.lastBy && userCap) {
+  if (backend === 'cloud') who = data.lastBy ? (data.lastBy === myName ? 'tú' : data.lastBy) : '';
+  else if (data.lastBy && userCap) {
     if (data.lastBy === myId) who = 'tú';
     else { try { const ps = await userCap.profiles([data.lastBy]); who = (ps && ps[data.lastBy] && ps[data.lastBy].name) || ''; } catch (e) {} }
   }
@@ -463,6 +481,8 @@ function setSync(st){
   const el = $('#sync'); if (!el) return;
   const T = {local:['Solo en este navegador', 'local'], connecting:['Conectando…', 'wait'], saving:['Guardando…', 'wait'], ok:['Compartido · guardado', 'ok'], error:['Sin conexión · reintentando', 'bad'], readonly:['Compartido · solo lectura', 'ro']}[st];
   el.textContent = T[0]; el.dataset.st = T[1];
+  if (backend === 'cloud' && st === 'readonly') el.textContent = 'Solo lectura · Editar con clave';
+  el.classList.toggle('clickable', backend === 'cloud' && st === 'readonly');
   document.body.classList.toggle('readonly', st === 'readonly' || !canWrite);
 }
 function stageMsg(kind){
@@ -471,11 +491,13 @@ function stageMsg(kind){
   const card = document.createElement('div'); card.className = 'msgcard';
   const h = document.createElement('h3'), p = document.createElement('p');
   if (kind === 'loading') { h.textContent = 'Cargando el plano compartido…'; p.textContent = 'Un momento.'; card.append(h, p); }
+  else if (kind === 'nolib') { h.textContent = 'No se puede conectar con la base de datos'; p.textContent = 'Revisa la conexión a internet y recarga la página.'; card.append(h, p); }
   else if (kind === 'slow') { h.textContent = 'No consigo conectar todavía'; p.textContent = 'Sigo intentándolo. Si no carga, revisa la conexión a internet.'; card.append(h, p); }
   else if (kind === 'empty') {
     h.textContent = 'Todavía no hay plano compartido';
-    p.textContent = canWrite ? 'Lo que hagas aquí lo verán y podrán cambiar tus compañeros que tengan el enlace. ¿Cómo quieres empezar?' : 'Quien comparte la página aún no ha dibujado el plano. Vuelve más tarde.';
+    p.textContent = canWrite ? 'Lo que hagas aquí lo verán y podrán cambiar tus compañeros que tengan el enlace. ¿Cómo quieres empezar?' : backend === 'cloud' ? 'Para dibujar el plano necesitas la clave del equipo.' : 'Quien comparte la página aún no ha dibujado el plano. Vuelve más tarde.';
     card.append(h, p);
+    if (!canWrite && backend === 'cloud') { const r = document.createElement('div'); r.className = 'actions'; r.append(btn('Tengo la clave', () => openPass(), 'primary')); card.append(r); }
     if (canWrite) {
       const row = document.createElement('div'); row.className = 'actions';
       row.append(btn('Dibujar mi exposición', () => openNewPlan(), 'primary'));
@@ -523,6 +545,76 @@ async function connect(){
     setSync('error'); toast('Se ha perdido la conexión con el plano compartido. Recarga la página.');
   });
 }
+/* ---------- Web pública: Supabase ---------- */
+function loadScript(src){ return new Promise((ok, ko) => { const sc = document.createElement('script'); sc.src = src; sc.onload = ok; sc.onerror = ko; document.head.append(sc); }); }
+async function checkPass(pass){
+  if (!pass) return false;
+  try { const {data, error} = await sb.rpc('comprobar_clave', {p_clave:pass}); return !error && data === true; } catch (e) { return false; }
+}
+function applyRow(r){
+  if (!r || !r.id) return;
+  if (r.id === '__meta') { if (r.data) { remoteData.init = true; META_KEYS.forEach(k => { if (r.data[k] !== undefined) remoteData[k] = r.data[k]; }); } }
+  else remoteData.objs[r.id] = r.data || null;
+  if (r.updated_at && (!remoteData.lastAt || r.updated_at > remoteData.lastAt)) { remoteData.lastAt = r.updated_at; remoteData.lastBy = r.updated_by || ''; }
+}
+function cloudShow(){
+  if (remoteData.init) { docExists = true; stageMsg(null); applyRemote(); }
+  else { docExists = false; if (!pending) { const c = S.colorBy; S = blankState(); S.colorBy = c; render(); } stageMsg('empty'); }
+}
+async function loadAll(){
+  const rows = [];
+  for (let from = 0; ; from += 1000) {
+    const {data, error} = await sb.from('objetos').select('id,data,updated_at,updated_by').eq('plano', 'principal').range(from, from + 999);
+    if (error) throw error;
+    rows.push(...data); if (data.length < 1000) break;
+  }
+  remoteData = {objs:{}}; rows.forEach(applyRow);
+}
+async function connectCloud(){
+  backend = 'cloud'; mode = 'connecting'; canWrite = false;
+  setSync('connecting'); stageMsg('loading');
+  const slowT = setTimeout(() => stageMsg('slow'), 10000);
+  try { await loadScript(SUPABASE_JS); sb = window.supabase.createClient(NUBE.url, NUBE.clave, {auth:{persistSession:false}}); }
+  catch (e) { clearTimeout(slowT); stageMsg('nolib'); setSync('error'); return; }
+  canWrite = await checkPass(teamPass);
+  if (!canWrite && teamPass) { teamPass = ''; lsSet(LS_KEY + '-clave', ''); }
+  mode = 'shared';
+  let live = false;
+  sb.channel('plano-principal')
+    .on('postgres_changes', {event:'*', schema:'public', table:'objetos', filter:'plano=eq.principal'}, ev => {
+      if (!loaded || !ev.new || !ev.new.id) return;
+      applyRow(ev.new); cloudShow(); showLastChange(remoteData);
+    })
+    .subscribe(st => {
+      if (st === 'SUBSCRIBED') { if (live && loaded) loadAll().then(cloudShow).catch(() => {}); live = true; if (loaded) setSync(canWrite ? 'ok' : 'readonly'); }
+      else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT') setSync('error');
+    });
+  for (let i = 0; i < 3; i++) {
+    try { await loadAll(); break; }
+    catch (e) { if (i === 2) { clearTimeout(slowT); stageMsg('nolib'); setSync('error'); return; } await new Promise(r => setTimeout(r, 1500 * (i + 1))); }
+  }
+  clearTimeout(slowT); loaded = true;
+  cloudShow(); fit(); showLastChange(remoteData);
+  setSync(canWrite ? 'ok' : 'readonly');
+}
+function openPass(msg){
+  if (document.querySelector('.modal-bg')) return;
+  const iName = mkInput('k-name', 'text', myName, {placeholder:'Para que se vea quién hace cada cambio', maxLength:40});
+  const iPass = mkInput('k-pass', 'password', '', {autocomplete:'current-password'});
+  const go = async () => {
+    const ok = await checkPass(iPass.value);
+    if (!ok) { toast('Esa clave no es correcta.'); iPass.select(); return; }
+    teamPass = iPass.value; myName = iName.value.trim();
+    lsSet(LS_KEY + '-clave', teamPass); lsSet(LS_KEY + '-nombre', myName);
+    canWrite = true; closeModal(); setSync('ok'); render(); cloudShow(); flush();
+    toast(myName ? `Hola, ${myName}. Ya puedes editar el plano.` : 'Ya puedes editar el plano.');
+  };
+  iPass.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+  modal('Editar el plano', [P(msg || 'Cualquiera con el enlace puede ver el plano. Para cambiarlo, escribe la clave del equipo. Se recordará en este navegador.'), grid(mkField('Tu nombre', iName, true), mkField('Clave del equipo', iPass, true))], [btn('Cancelar', closeModal), btn('Entrar', go, 'primary')]);
+  setTimeout(() => (myName ? iPass : iName).focus(), 0);
+}
+function logoutEdit(){ teamPass = ''; lsSet(LS_KEY + '-clave', ''); canWrite = false; setSync('readonly'); render(); toast('Este navegador ya no puede editar el plano.'); }
+
 function startLocal(){
   mode = 'local'; stageMsg(null);
   S = loadSaved() || sampleState(); persist();
@@ -1113,7 +1205,7 @@ function modal(title, body, foot){
   bg.addEventListener('pointerdown', e => { if (e.target === bg) closeModal(); });
   const m = document.createElement('div'); m.className = 'modal'; m.setAttribute('role', 'dialog'); m.setAttribute('aria-modal', 'true');
   const h = document.createElement('header'); const h3 = document.createElement('h3'); h3.textContent = title; h.append(h3, btn('Cerrar', closeModal));
-  const b = document.createElement('div'); b.className = 'body'; b.append(...[].concat(body));
+  const b = document.createElement('div'); b.className = 'body'; b.append(...[].concat(body).filter(Boolean));
   m.append(h, b);
   if (foot && foot.length) { const f = document.createElement('footer'); f.append(...foot); m.append(f); }
   bg.append(m); document.body.append(bg);
@@ -1325,7 +1417,7 @@ function openFile(){
   fi.onchange = () => { const f = fi.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { taIn.value = rd.result; }; rd.readAsText(f); };
   const h = t => { const e = document.createElement('h4'); e.textContent = t; e.style.cssText = 'margin:6px 0 0;font:600 14px var(--font-head)'; return e; };
   modal('Guardar / abrir', [
-    P(mode === 'shared' ? 'El plano se guarda solo y lo comparten todos los que abren esta página. Aun así, guarda una copia de vez en cuando por si alguien lo borra sin querer.' : 'El plano se guarda solo en este navegador. Guarda una copia para pasarlo a otro ordenador o por si se borran los datos del navegador.'),
+    P(mode === 'shared' ? (backend === 'cloud' ? 'El plano se guarda solo en la base de datos del equipo y lo ve todo el que tenga el enlace. Aun así, guarda una copia de vez en cuando por si alguien lo borra sin querer.' : 'El plano se guarda solo y lo comparten todos los que abren esta página. Aun así, guarda una copia de vez en cuando por si alguien lo borra sin querer.') : 'El plano se guarda solo en este navegador. Guarda una copia para pasarlo a otro ordenador o por si se borran los datos del navegador.'),
     h('Copia de seguridad del plano'),
     actions(btn('Descargar copia (.json)', () => download(`${fileSafe(S.name)}-${stamp()}.json`, json, 'application/json'), 'primary'), btn('Copiar al portapapeles', () => copyText(json, taOut))), taOut,
     h('Listado por plazas para Excel'),
@@ -1337,7 +1429,9 @@ function openFile(){
       catch (e) { toast('Ese texto no es una copia válida del plano.'); }
     })),
     h('Empezar de cero'),
-    actions(btn('Plano nuevo…', () => { closeModal(); openNewPlan(); }))
+    actions(btn('Plano nuevo…', () => { closeModal(); openNewPlan(); })),
+    backend === 'cloud' && canWrite ? h('Este ordenador') : null,
+    backend === 'cloud' && canWrite ? actions(btn('Olvidar la clave en este navegador', () => { closeModal(); logoutEdit(); })) : null
   ]);
 }
 function openNewPlan(){
@@ -1398,6 +1492,7 @@ function render(opts = {}){
   document.body.append(dl1, dl2);
 })();
 
+$('#sync').addEventListener('click', () => { if (backend === 'cloud' && !canWrite) openPass(); });
 $('#bAddCar').onclick = addCar;
 $('#bRow').onclick = openRow;
 $('#bZone').onclick = addZone;
@@ -1419,7 +1514,11 @@ new ResizeObserver(() => setViewBox()).observe(svg);
 try { matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => render()); } catch (e) {}
 new MutationObserver(() => render()).observe(document.documentElement, {attributes:true, attributeFilter:['data-theme']});
 
-if (window.claude && typeof window.claude.use === 'function') {
+if (NUBE.url && NUBE.clave) {
+  mode = 'connecting'; S = blankState(); S.colorBy = lsGet(LS_KEY + '-color') || 'estado';
+  render(); requestAnimationFrame(fit);
+  connectCloud();
+} else if (window.claude && typeof window.claude.use === 'function') {
   mode = 'connecting'; S = blankState(); S.colorBy = lsGet(LS_KEY + '-color') || 'estado';
   render(); requestAnimationFrame(fit);
   connect();

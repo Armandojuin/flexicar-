@@ -13,6 +13,10 @@ Es un solo archivo, `index.html`: se abre con doble clic en cualquier navegador 
 - **Avisos**: coches vendidos que siguen expuestos, coches que se pisan, coches fuera de plaza.
 - **Guardar**: se guarda solo en el navegador. Desde «Guardar / abrir» se descarga una copia (.json) para llevarla a otro ordenador y un listado por plazas para Excel (.csv). «Imagen» saca un PNG del plano para mandarlo por WhatsApp o correo.
 
+## Web pública con plano común
+
+Para publicarla en internet y que todo el equipo edite el mismo plano, sigue [GUIA-WEB-PUBLICA.md](GUIA-WEB-PUBLICA.md).
+
 ## Atajos
 
 | Tecla | Acción |
