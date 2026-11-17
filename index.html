@@ -232,7 +232,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
     </div>
     <span class="sep"></span>
     <button class="btn" id="bSort" title="Colocar automáticamente los coches en las plazas">Ordenar exposición</button>
-    <label class="inline" for="colorBy">Franja
+    <label class="inline" for="colorBy" hidden>Franja
       <select class="sm" id="colorBy">
         <option value="estado">Ninguna</option>
         <option value="combustible">Combustible</option>
@@ -751,12 +751,12 @@ function readable(rot){ const r = ((rot % 360) + 360) % 360; return (r > 90 && r
 const measureCtx = document.createElement('canvas').getContext('2d');
 function textW(t, f, weight, family){ measureCtx.font = `${weight} 100px ${family}`; return measureCtx.measureText(t).width / 100 * f; }
 // ajusta el texto al ancho disponible: primero reduce la letra (hasta un 70 %) y, si aun así no cabe, lo recorta
-function fitText(t, f, weight, family, maxW){
+function fitText(t, f, weight, family, maxW, minRatio = .7){
   const w = textW(t, f, weight, family);
   if (w <= maxW) return [t, f];
-  const f2 = Math.max(f * .7, f * maxW / w);
+  const f2 = Math.max(f * minRatio, f * maxW / w * .985);
   let out = t;
-  while (out.length > 3 && textW(out, f2, weight, family) > maxW) out = out.slice(0, -2) + '…';
+  while (out.length > 3 && textW(out, f2, weight, family) > maxW * 1.001) out = out.slice(0, -2) + '…';
   return [out, f2];
 }
 function clip(s, n){ return s.length > n ? s.slice(0, n - 1) + '…' : s; }
@@ -835,7 +835,7 @@ function renderPlan(opts = {}){
       layers.spot.append(g);
     } else if (o.kind === 'car' && o.placed) {
       // el coche siempre lleva el color de su estado; lo que se elija en «Franja» va en una banda en la parte trasera
-      const fill = estadoColor(o.estado), ink = inkFor(fill), stripe = S.colorBy !== 'estado' ? carFill(o, pr) : null;
+      const fill = estadoColor(o.estado), ink = inkFor(fill), stripe = null; // la etiqueta entera va del color del estado
       const sp = o.spot ? byId(o.spot) : null;
       // dentro de una plaza, el coche se dibuja ocupando la plaza (así se lee mejor)
       const L = sp ? Math.max(2, sp.w - .3) : o.L, A = sp ? Math.max(1, sp.h - .3) : o.A;
@@ -849,7 +849,7 @@ function renderPlan(opts = {}){
       const r = ((o.rot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
       const sh = stripe ? .31 : 0; // hueco que deja la franja
       const bw = (vert ? A : L) - .3 - (vert ? 0 : sh * 2), bh = (vert ? L : A) - .25 - (vert ? sh * 2 : 0);
-      const fs = Math.max(.26, Math.min(bw / 5.2, bh / 3.4, .8));
+      const fs = Math.max(.26, Math.min(bw / 5.2, bh / 3.95, .8));
       const cap = Math.floor(bh / (fs * 1.3));
       const price = +o.precio ? eur.format(+o.precio) : '';
       const extra = [o.anio, +o.km ? nf.format(+o.km) + ' km' : ''].filter(Boolean).join(' · ');
@@ -872,7 +872,7 @@ function renderPlan(opts = {}){
           texts.push(T(0, cy, txt, {'font-size':r2(f * 100) / 100, 'font-weight':700, 'font-family':font, fill:inkFor(x[4])}));
           return;
         }
-        const [txt, f] = fitText(String(x[0]), fs * x[1], x[2], x[3] || font, bw);
+        const [txt, f] = fitText(String(x[0]), fs * x[1], x[2], x[3] || font, bw, .5);
         texts.push(T(0, cy, txt, {'font-size':r2(f * 100) / 100, 'font-weight':x[2], 'font-family':x[3] || font}));
       });
       g.append(E('g', {transform:`translate(${sh} 0) rotate(${-r})`, fill:ink}, texts));
@@ -912,7 +912,7 @@ function renderLegend(){
   const chip = (c, t) => { const d = document.createElement('span'); d.className = 'chip'; const i = document.createElement('i'); i.style.background = c; d.append(i, t); lg.append(d); };
   const placed = objs('car').filter(c => c.placed);
   estados().filter(e => placed.some(c => c.estado === e.name) || e.name === estadoBase()).forEach(e => chip(e.color, e.name));
-  if (S.colorBy === 'estado') return;
+  return; // solo estados
   const sep = document.createElement('span'); sep.className = 'chip lbl'; sep.textContent = 'Franja:'; lg.append(sep);
   if (S.colorBy === 'combustible') COMBUS.filter(f => placed.some(c => c.combustible === f)).forEach(f => chip(FUEL_C[f], f));
   else if (S.colorBy === 'marca') [...new Set(placed.map(c => c.marca).filter(Boolean))].sort(natural).slice(0, 14).forEach(m => chip(BRAND_PAL[hashStr(m.toLowerCase()) % BRAND_PAL.length], m));
