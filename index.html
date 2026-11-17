@@ -275,7 +275,7 @@ const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
-const SUPABASE_JS = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
+const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
 const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', maximumFractionDigits:0});
 const nf = new Intl.NumberFormat('es-ES');
 const ESTADOS = ['Disponible','Reservado','En preparación','Vendido'];
@@ -574,7 +574,7 @@ async function connectCloud(){
   backend = 'cloud'; mode = 'connecting'; canWrite = false;
   setSync('connecting'); stageMsg('loading');
   const slowT = setTimeout(() => stageMsg('slow'), 10000);
-  try { await loadScript(SUPABASE_JS); sb = window.supabase.createClient(NUBE.url, NUBE.clave, {auth:{persistSession:false}}); }
+  try { try { await loadScript(SUPABASE_JS[0]); } catch (e) { await loadScript(SUPABASE_JS[1]); } if (!window.supabase) throw 0; sb = window.supabase.createClient(NUBE.url, NUBE.clave, {auth:{persistSession:false}}); }
   catch (e) { clearTimeout(slowT); stageMsg('nolib'); setSync('error'); return; }
   canWrite = await checkPass(teamPass);
   if (!canWrite && teamPass) { teamPass = ''; lsSet(LS_KEY + '-clave', ''); }

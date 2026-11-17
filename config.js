@@ -3,6 +3,6 @@
 // (Supabase → Project Settings → API). Deja las comillas.
 // Si los dejas vacíos, el plano se guarda solo en el navegador de cada uno.
 window.PLANO_CONFIG = {
-  supabaseUrl: "",   // ejemplo: "https://abcdefghijk.supabase.co"
-  supabaseKey: ""    // la clave "anon public" (o "publishable")
+  supabaseUrl: "https://wvwyfnpjeizjywzlljpp.supabase.co",
+  supabaseKey: "sb_publishable_vT7O7Iqkc0ZirDcKWx3B9A_jYby9Xvf"   // clave pública: está pensada para ir en la web
 };
