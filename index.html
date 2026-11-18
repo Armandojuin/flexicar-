@@ -324,7 +324,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-18.4';
+const APP_VERSION = '2026-11-18.5';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -764,13 +764,21 @@ function overlapOBB(a, b){
 function inside(o, x, y){ const [w, h] = dims(o); const [lx, ly] = rotP(x - o.x, y - o.y, -o.rot); return Math.abs(lx) <= w/2 && Math.abs(ly) <= h/2; }
 function spotAt(x, y){ return objs('spot').find(s => inside(s, x, y)) || null; }
 function snapV(v){ const g = S.snap; return g ? Math.round(v / g) * g : v; }
-function placeInSpot(c, s){ c.x = s.x; c.y = s.y; c.rot = s.rot; c.spot = s.id; c.placed = true; }
+// el coche se aparca a lo largo del lado largo de la plaza (aunque se haya puesto ancho > fondo)
+function spotCarRot(s){ return (((s.rot || 0) + (s.h > s.w ? 90 : 0)) % 360 + 360) % 360; }
+function placeInSpot(c, s){ c.x = s.x; c.y = s.y; c.rot = spotCarRot(s); c.spot = s.id; c.placed = true; }
 function carInSpot(spotId){ return S.objs.find(o => o.kind === 'car' && o.placed && o.spot === spotId) || null; }
 function sortedSpots(list){ return list.slice().sort((a, b) => natural(spotPrefix(a.label), spotPrefix(b.label)) || natural(a.label, b.label)); }
 function freeSpots(){ return sortedSpots(objs('spot').filter(s => !carInSpot(s.id))); }
+// forma real que ocupa cada coche: si está en una plaza, el hueco de la plaza; si está suelto, sus medidas
+function carShape(c){
+  const sp = c.spot ? byId(c.spot) : null;
+  if (sp && sp.kind === 'spot') return {kind:'g', x:sp.x, y:sp.y, w:Math.max(sp.w, sp.h) - .3, h:Math.min(sp.w, sp.h) - .3, rot:spotCarRot(sp)};
+  return {kind:'g', x:c.x, y:c.y, w:c.L, h:c.A, rot:c.rot || 0};
+}
 function overlaps(){
-  const cars = objs('car').filter(c => c.placed); const bad = new Set();
-  for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) if (overlapOBB(cars[i], cars[j])) { bad.add(cars[i].id); bad.add(cars[j].id); }
+  const cars = objs('car').filter(c => c.placed); const bad = new Set(); const sh = cars.map(carShape);
+  for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) if (overlapOBB(sh[i], sh[j])) { bad.add(cars[i].id); bad.add(cars[j].id); }
   return bad;
 }
 
@@ -906,15 +914,16 @@ function renderPlan(opts = {}){
       const fill = estadoColor(o.estado), ink = inkFor(fill), stripe = null; // la etiqueta entera va del color del estado
       const sp = o.spot ? byId(o.spot) : null;
       // dentro de una plaza, el coche se dibuja ocupando la plaza (así se lee mejor)
-      const L = sp ? Math.max(2, sp.w - .3) : o.L, A = sp ? Math.max(1, sp.h - .3) : o.A;
-      const g = E('g', {'data-id':o.id, transform:tf(o), style:'cursor:move'}, [
+      const L = sp ? Math.max(2, Math.max(sp.w, sp.h) - .3) : o.L, A = sp ? Math.max(1, Math.min(sp.w, sp.h) - .3) : o.A;
+      const crot = sp ? spotCarRot(sp) : (o.rot || 0);
+      const g = E('g', {'data-id':o.id, transform:tf({x:o.x, y:o.y, rot:crot}), style:'cursor:move'}, [
         E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill, stroke:shade(fill, .62), 'stroke-width':.06}),
         E('rect', {x:L/2 - 1.2, y:-A/2 + .16, width:.34, height:A - .32, rx:.12, fill:'rgba(0,0,0,.1)'}),
         E('rect', {x:-L/2 + .22, y:-A/2 + .22, width:.22, height:A - .44, rx:.08, fill:'rgba(0,0,0,.12)'}),
         isSold(o) ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null,
         stripe ? E('path', {d:`M${-L/2 + .62} ${-A/2}H${-L/2 + .42}A.42 .42 0 0 0 ${-L/2} ${-A/2 + .42}V${A/2 - .42}A.42 .42 0 0 0 ${-L/2 + .42} ${A/2}H${-L/2 + .62}Z`, fill:stripe, stroke:shade(fill, .62), 'stroke-width':.04}) : null
       ]);
-      const r = ((o.rot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
+      const r = ((crot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
       const sh = stripe ? .31 : 0; // hueco que deja la franja
       const bw = (vert ? A : L) - .3 - (vert ? 0 : sh * 2), bh = (vert ? L : A) - .25 - (vert ? sh * 2 : 0);
       const fs = Math.max(.26, Math.min(bw / 5.2, bh / 3.95, .8));
