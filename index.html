@@ -134,6 +134,8 @@ aside.right{border-left:1px solid var(--line)}
 .item .t .hd .pill{font-size:10.5px;padding:1px 7px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:60%}
 .item .t div{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .item .r{text-align:right;font-size:12px;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.item .r .pr{font-weight:600}
+.item .r .ct{font-size:10.5px;color:var(--muted)}
 .item .r .spot{font:600 11px/1 var(--font-plate);padding:2px 6px;border-radius:4px;background:var(--bg);border:1px solid var(--line)}
 .item .r .place{font-size:11px;padding:2px 7px;border-radius:5px;border:1px solid var(--accent);color:var(--accent);background:transparent}
 .empty{color:var(--muted);font-size:12.5px;padding:6px 8px}
@@ -322,7 +324,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-18.1';
+const APP_VERSION = '2026-11-18.2';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -383,7 +385,7 @@ function blankState(){
   return {v:1, name:'Exposición', W:50, H:34, grid:true, snap:0.25, colorBy:'estado', sample:false, cats:[], estados:clone(DEFAULT_ESTADOS), planes:[{id:'principal', name:'Expo real'}], objs:[]};
 }
 function newCar(p = {}){
-  return Object.assign({id:uid(), kind:'car', matricula:'', marca:'', modelo:'', version:'', anio:'', km:'', precio:'', combustible:'Gasolina', color:'', estado:estadoBase(), notas:'', L:4.5, A:1.85, placed:false, x:0, y:0, rot:0, spot:null}, p);
+  return Object.assign({id:uid(), kind:'car', matricula:'', marca:'', modelo:'', version:'', anio:'', km:'', precio:'', precioFin:'', combustible:'Gasolina', color:'', estado:estadoBase(), notas:'', L:4.5, A:1.85, placed:false, x:0, y:0, rot:0, spot:null}, p);
 }
 function sampleState(){
   const s = blankState();
@@ -910,7 +912,7 @@ function renderPlan(opts = {}){
       const bw = (vert ? A : L) - .3 - (vert ? 0 : sh * 2), bh = (vert ? L : A) - .25 - (vert ? sh * 2 : 0);
       const fs = Math.max(.26, Math.min(bw / 5.2, bh / 3.95, .8));
       const cap = Math.floor(bh / (fs * 1.3));
-      const price = +o.precio ? eur.format(+o.precio) : '';
+      const price = +o.precioFin ? eur.format(+o.precioFin) : +o.precio ? eur.format(+o.precio) : '';
       const extra = [o.anio, +o.km ? nf.format(+o.km) + ' km' : ''].filter(Boolean).join(' · ');
       // etiqueta del estado, del color del estado (no se muestra para el estado normal, p. ej. «Disponible»)
       const est = !isDefaultEstado(o) ? [o.estado, .85, 700] : null;
@@ -1006,7 +1008,9 @@ function renderList(){
     const head = document.createElement('div'); head.className = 'hd'; head.append(b, pill);
     t.append(head, s);
     const r = document.createElement('div'); r.className = 'r';
-    const p = document.createElement('span'); p.textContent = +c.precio ? eur.format(+c.precio) : '—'; r.append(p);
+    const p = document.createElement('span'); p.className = 'pr';
+    if (+c.precioFin) { p.textContent = eur.format(+c.precioFin); p.title = 'Precio financiado'; const ct = document.createElement('small'); ct.className = 'ct'; ct.textContent = +c.precio ? 'Contado ' + eur.format(+c.precio) : ''; r.append(p); if (ct.textContent) r.append(ct); }
+    else { p.textContent = +c.precio ? eur.format(+c.precio) : '—'; p.title = 'Precio al contado'; r.append(p); }
     if (c.placed) { const sp = document.createElement('span'); sp.className = 'spot'; sp.textContent = c.spot ? (byId(c.spot)?.label || '·') : 'libre'; r.append(sp); }
     else { const bt = document.createElement('button'); bt.className = 'place'; bt.textContent = 'Colocar'; bt.dataset.place = c.id; r.append(bt); }
     d.append(t, r); L.append(d);
@@ -1100,7 +1104,8 @@ function renderProps(){
              field(o, 'version', 'Versión', 'text', {full:true}),
              field(o, 'anio', 'Año', 'number', {step:1}),
              field(o, 'km', 'Kilómetros', 'number', {step:100, min:0}),
-             field(o, 'precio', 'Precio (€)', 'number', {step:100, min:0}),
+             field(o, 'precioFin', 'Precio financiado (€)', 'number', {step:100, min:0}),
+             field(o, 'precio', 'Precio al contado (€)', 'number', {step:100, min:0}),
              field(o, 'cat', 'Categoría', 'select', {options:[{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))]}),
              catEditBtn(),
              field(o, 'estado', 'Estado', 'select', {options:[...ESTADOS_LIST(), ...(ESTADOS_LIST().includes(o.estado) ? [] : [o.estado])]}),
@@ -1585,8 +1590,10 @@ function openRow(){
 
 // Ordenar exposición
 const CRITERIOS = [
-  {v:'precio_asc', n:'Precio: de más barato a más caro', f:(a, b) => (+a.precio || 1e12) - (+b.precio || 1e12)},
-  {v:'precio_desc', n:'Precio: de más caro a más barato', f:(a, b) => (+b.precio || 0) - (+a.precio || 0)},
+  {v:'fin_asc', n:'Precio financiado: de más barato a más caro', f:(a, b) => (+(a.precioFin || a.precio) || 1e12) - (+(b.precioFin || b.precio) || 1e12)},
+  {v:'fin_desc', n:'Precio financiado: de más caro a más barato', f:(a, b) => (+(b.precioFin || b.precio) || 0) - (+(a.precioFin || a.precio) || 0)},
+  {v:'precio_asc', n:'Precio al contado: de más barato a más caro', f:(a, b) => (+a.precio || 1e12) - (+b.precio || 1e12)},
+  {v:'precio_desc', n:'Precio al contado: de más caro a más barato', f:(a, b) => (+b.precio || 0) - (+a.precio || 0)},
   {v:'marca', n:'Marca y modelo (A–Z)', f:(a, b) => natural(a.marca, b.marca) || natural(a.modelo, b.modelo) || (+a.precio - +b.precio)},
   {v:'marca_precio', n:'Marca, y dentro de cada marca por precio', f:(a, b) => natural(a.marca, b.marca) || (+a.precio - +b.precio)},
   {v:'anio', n:'Año: los más nuevos primero', f:(a, b) => (+b.anio || 0) - (+a.anio || 0) || (+a.km - +b.km)},
@@ -1599,7 +1606,7 @@ function openSort(){
   const spots = objs('spot');
   if (!spots.length) { modal('Ordenar exposición', [P('Primero dibuja las plazas con «+ Fila de plazas». Después podrás colocar los coches automáticamente por precio, marca, año…')], [btn('Crear una fila de plazas', () => { closeModal(); openRow(); }, 'primary')]); return; }
   const prefixes = [...new Set(spots.map(s => spotPrefix(s.label)))].sort(natural);
-  const crit = mkSelect('o-crit', CRITERIOS, 'precio_asc');
+  const crit = mkSelect('o-crit', CRITERIOS, 'fin_asc');
   const rowsBox = document.createElement('div'); rowsBox.className = 'rows-check';
   prefixes.forEach(p => { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.checked = true; c.value = p; l.append(c, `Fila ${p} (${spots.filter(s => spotPrefix(s.label) === p).length})`); rowsBox.append(l); });
   const mkCheck = (id, text, on) => { const l = document.createElement('label'); const c = document.createElement('input'); c.type = 'checkbox'; c.id = id; c.checked = on; l.append(c, text); return l; };
@@ -1858,7 +1865,7 @@ function openEstados(){
 // Importar stock
 const HEAD = {
   matricula:['matricula','matrícula','placa','plate','bastidor'], marca:['marca','brand','make'], modelo:['modelo','model'], version:['version','versión','acabado'],
-  anio:['año','ano','anio','year','matriculacion','fecha'], km:['km','kms','kilometros','kilómetros','kilometraje'], precio:['precio','pvp','price','importe','precio venta'],
+  anio:['año','ano','anio','year','matriculacion','fecha'], km:['km','kms','kilometros','kilómetros','kilometraje'], precio:['precio','pvp','price','importe','precio venta','precio contado','precio al contado','contado','pvp contado'], precioFin:['precio financiado','financiado','pvp financiado','precio fin','precio con financiacion','precio financiacion','precio financiando','financiacion'],
   combustible:['combustible','fuel','motor'], color:['color','colour'], estado:['estado','status','situacion','situación'], cat:['categoria','categoría','segmento','tipo','carroceria','carrocería','category'], notas:['notas','observaciones','comentarios']
 };
 const norm = s => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9 ]/g, '').trim();
@@ -1899,7 +1906,10 @@ function ensureCat(name){
 function importCars(text){
   const rows = parseCSV(text); if (rows.length < 2) return {error:'No encuentro filas. La primera fila tiene que ser la cabecera (Matrícula, Marca, Modelo, Precio…).'};
   const head = rows[0].map(norm); const map = {};
-  for (const k in HEAD) { const i = head.findIndex(h => HEAD[k].some(a => h === norm(a))); const j = i >= 0 ? i : head.findIndex(h => HEAD[k].some(a => h.startsWith(norm(a)))); if (j >= 0) map[k] = j; }
+  // primero los nombres exactos; luego los que empiezan igual, sin repetir columna (así «Precio financiado» no se toma como precio al contado)
+  for (const k in HEAD) { const i = head.findIndex(h => HEAD[k].some(a => h === norm(a))); if (i >= 0) map[k] = i; }
+  const used = new Set(Object.values(map));
+  for (const k in HEAD) if (map[k] == null) { const j = head.findIndex((h, idx) => !used.has(idx) && !(k === 'precio' && h.includes('financ')) && HEAD[k].some(a => h.startsWith(norm(a)))); if (j >= 0) { map[k] = j; used.add(j); } }
   if (map.matricula == null && map.marca == null) return {error:'No encuentro las columnas «Matrícula» ni «Marca» en la cabecera.'};
   let added = 0, updated = 0;
   mutate(() => {
@@ -1911,6 +1921,7 @@ function importCars(text){
       if (map.anio != null) { const a = g('anio').match(/(19|20)\d{2}/); d.anio = a ? +a[0] : ''; }
       if (map.km != null) d.km = toNum(g('km'));
       if (map.precio != null) d.precio = toNum(g('precio'));
+      if (map.precioFin != null) d.precioFin = toNum(g('precioFin'));
       if (map.combustible != null) d.combustible = canonFuel(g('combustible'));
       if (map.estado != null) d.estado = canonEstado(g('estado'));
       if (map.cat != null) { const nm = g('cat'); d.cat = nm ? ensureCat(nm) : ''; }
@@ -1928,7 +1939,7 @@ function openImport(){
   fi.onchange = () => { const f = fi.files[0]; if (!f) return; const rd = new FileReader(); rd.onload = () => { let t = rd.result; if (t.includes('\uFFFD')) { const r2_ = new FileReader(); r2_.onload = () => { ta.value = r2_.result; }; r2_.readAsText(f, 'windows-1252'); } else ta.value = t; }; rd.readAsText(f, 'utf-8'); };
   modal('Importar stock', [
     P('Desde Excel: selecciona la tabla (con la fila de títulos) y pégala aquí, o guarda el Excel como «CSV (delimitado por punto y coma)» y elige el archivo.'),
-    P('Columnas que entiendo: Matrícula, Marca, Modelo, Versión, Año, Km, Precio, Combustible, Color, Estado, Categoría (o Segmento) y Notas. Las categorías que no existan se crean solas. Si una matrícula ya existe, se actualizan sus datos y se queda en su plaza. Los coches nuevos van a «Sin colocar».'),
+    P('Columnas que entiendo: Matrícula, Marca, Modelo, Versión, Año, Km, Precio (o Precio contado), Precio financiado, Combustible, Color, Estado, Categoría (o Segmento) y Notas. Las categorías que no existan se crean solas. Si una matrícula ya existe, se actualizan sus datos y se queda en su plaza. Los coches nuevos van a «Sin colocar».'),
     mkField('Archivo CSV', fi, true), mkField('O pega aquí los datos', ta, true)
   ], [btn('Cancelar', closeModal), btn('Importar', () => {
     const r = importCars(ta.value);
@@ -1956,8 +1967,8 @@ function fileSafe(s){ return norm(s).replace(/ +/g, '-') || 'plano'; }
 function listingCSV(){
   const cars = objs('car').slice().sort((a, b) => { const la = a.placed ? (a.spot ? byId(a.spot)?.label : 'zz') : 'zzz', lb = b.placed ? (b.spot ? byId(b.spot)?.label : 'zz') : 'zzz'; return natural(la, lb); });
   const q = v => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const lines = [['Plaza','Matrícula','Categoría','Marca','Modelo','Versión','Año','Km','Precio','Combustible','Color','Estado','Notas'].join(';')];
-  for (const c of cars) lines.push([c.placed ? (c.spot ? byId(c.spot)?.label : 'Fuera de plaza') : 'Sin colocar', c.matricula, catName(c), c.marca, c.modelo, c.version, c.anio, c.km, c.precio, c.combustible, c.color, c.estado, c.notas].map(q).join(';'));
+  const lines = [['Plaza','Matrícula','Categoría','Marca','Modelo','Versión','Año','Km','Precio contado','Precio financiado','Combustible','Color','Estado','Notas'].join(';')];
+  for (const c of cars) lines.push([c.placed ? (c.spot ? byId(c.spot)?.label : 'Fuera de plaza') : 'Sin colocar', c.matricula, catName(c), c.marca, c.modelo, c.version, c.anio, c.km, c.precio, c.precioFin, c.combustible, c.color, c.estado, c.notas].map(q).join(';'));
   return '﻿' + lines.join('\r\n');
 }
 function openFile(){
