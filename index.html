@@ -324,12 +324,19 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-18.3';
+const APP_VERSION = '2026-11-18.4';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
-const eur = new Intl.NumberFormat('es-ES', {style:'currency', currency:'EUR', maximumFractionDigits:0});
-const nf = new Intl.NumberFormat('es-ES');
+// Números siempre con punto de miles (9.500, no 9500), también los de 4 cifras, y coma decimal
+function fmtNum(v, dec = 2){
+  const n = Number(v); if (!isFinite(n)) return String(v);
+  const neg = n < 0, [i, d] = Math.abs(n).toFixed(dec).split('.');
+  const int = i.replace(/\B(?=(\d{3})+(?!\d))/g, '.'), frac = (d || '').replace(/0+$/, '');
+  return (neg ? '-' : '') + int + (frac ? ',' + frac : '');
+}
+const eur = {format:v => fmtNum(Math.round(Number(v)), 0) + '\u00a0€'};
+const nf = {format:v => fmtNum(v)};
 /* Estados de los coches: editables. Cada uno tiene un «comportamiento» que decide qué hace el programa con él. */
 const TIPOS_ESTADO = [
   {v:'expo', n:'Se expone', d:'Se coloca y se ordena con normalidad'},
