@@ -324,7 +324,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-18.2';
+const APP_VERSION = '2026-11-18.3';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -1106,7 +1106,7 @@ function renderProps(){
              field(o, 'km', 'Kilómetros', 'number', {step:100, min:0}),
              field(o, 'precioFin', 'Precio financiado (€)', 'number', {step:100, min:0}),
              field(o, 'precio', 'Precio al contado (€)', 'number', {step:100, min:0}),
-             field(o, 'cat', 'Categoría', 'select', {options:[{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))]}),
+             field(o, 'cat', 'Categoría', 'select', {options:[{v:'', n:cats().length ? 'Sin categoría' : 'Aún no hay categorías →'}, ...cats().map(k => ({v:k.id, n:k.name}))]}),
              catEditBtn(),
              field(o, 'estado', 'Estado', 'select', {options:[...ESTADOS_LIST(), ...(ESTADOS_LIST().includes(o.estado) ? [] : [o.estado])]}),
              editBtn('Editar estados…', openEstados),
@@ -1490,6 +1490,10 @@ function renderCatFilter(){
   const add = (v, n) => { const o = document.createElement('option'); o.value = v; o.textContent = n; sel.append(o); };
   add('', 'Todas las categorías'); cats().forEach(k => add(k.id, k.name)); if (cats().length) add('__none', 'Sin categoría');
   sel.value = [...sel.options].some(o => o.value === cur) ? cur : ''; filter.cat = sel.value;
+  // sin categorías creadas, el desplegable no sirve de nada: se cambia por un botón para crearlas
+  const none = !cats().length;
+  sel.hidden = none;
+  const bc = $('#bCats'); bc.textContent = none ? '+ Crear categorías' : 'Categorías'; bc.style.flex = none ? '1' : ''; bc.title = none ? 'Agrupa los coches (SUV, Km 0, Oferta…) para filtrarlos y ordenarlos' : 'Crear y editar categorías';
 }
 
 // Teclado
