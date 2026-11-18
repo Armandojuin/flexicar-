@@ -194,6 +194,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 .rows-check{display:flex;flex-wrap:wrap;gap:6px}
 .rows-check label{display:inline-flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:7px;padding:4px 8px;font-size:13px}
 .summary{font-size:13px;padding:8px 10px;border-radius:8px;background:var(--accent-soft)}
+.update{position:fixed;left:50%;top:calc(10px + env(safe-area-inset-top,0px));transform:translateX(-50%);z-index:70;background:var(--panel);border:1px solid var(--accent);border-radius:10px;padding:8px 8px 8px 14px;display:flex;gap:12px;align-items:center;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.15);max-width:calc(100% - 32px)}
 .toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 14px;border-radius:8px;font-size:13px;z-index:60;max-width:calc(100% - 32px)}
 .catlist{display:flex;flex-direction:column;gap:6px}
 .catrow{display:grid;grid-template-columns:40px minmax(0,1fr) 62px 34px 66px;gap:8px;align-items:center}
@@ -321,6 +322,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
+const APP_VERSION = '2026-11-18.1';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -2045,6 +2047,22 @@ function render(opts = {}){
   document.body.append(dl1, dl2);
 })();
 
+// Aviso de versión nueva: el navegador puede guardar la página antigua unos minutos
+async function checkUpdate(){
+  if (location.protocol !== 'https:' && location.protocol !== 'http:') return;
+  try {
+    const t = await (await fetch('./?v=' + Date.now(), {cache:'no-store'})).text();
+    const m = t.match(/const APP_VERSION = '([^']+)'/);
+    if (m && m[1] !== APP_VERSION && !document.querySelector('.update')) {
+      const d = document.createElement('div'); d.className = 'update'; d.setAttribute('role', 'status');
+      d.append('Hay una versión nueva de Expo.');
+      d.append(btn('Recargar', () => location.reload(), 'primary'));
+      document.body.append(d);
+    }
+  } catch (e) {}
+}
+setTimeout(checkUpdate, 3000); setInterval(checkUpdate, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) checkUpdate(); });
 $('#sync').addEventListener('click', () => { if (backend === 'cloud' && !canWrite) openPass(); });
 $('#bAddCar').onclick = addCar;
 $('#bRow').onclick = openRow;
