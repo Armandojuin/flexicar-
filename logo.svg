@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Expo">
+  <title>Expo</title>
+  <!-- fondo: asfalto verde petróleo -->
+  <rect width="64" height="64" rx="15" fill="#0b4f4f"/>
+  <!-- tres plazas pintadas en el suelo -->
+  <path d="M10 13V51H54V13M24.7 13V51M39.3 13V51" fill="none" stroke="#f2c230" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- coche visto desde arriba, aparcado en la plaza central -->
+  <rect x="27.6" y="17" width="8.8" height="27" rx="3.8" fill="#ffffff"/>
+  <rect x="28.9" y="22" width="6.2" height="3.6" rx="1.2" fill="#0b4f4f" opacity=".85"/>
+  <rect x="28.9" y="37.4" width="6.2" height="2.4" rx="1" fill="#0b4f4f" opacity=".6"/>
+</svg>

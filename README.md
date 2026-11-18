@@ -1,6 +1,9 @@
-# Plano de Exposición
+# Expo
 
-Programa para dibujar el plano de la exposición de coches y ordenarlos.
+<img src="logo.svg" width="72" alt="Logo de Expo">
+
+**Expo** es la web para dibujar el plano de la exposición de coches y ordenarlos.
+
 Es un solo archivo, `index.html`: se abre con doble clic en cualquier navegador (Chrome, Edge, Safari…), no hay que instalar nada.
 
 ## Qué se puede hacer
