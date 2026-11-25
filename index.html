@@ -68,6 +68,8 @@ button{cursor:pointer}
 .add-row{--c:var(--stall)}
 .add-zone{--c:var(--info)}
 .add-text{--c:var(--muted)}
+.add-taller{--c:#c4572f}
+@media (max-width:600px){.addbar{grid-template-columns:repeat(5,1fr)}}
 @media (max-width:600px){
   .addbar{display:grid;grid-template-columns:repeat(4,1fr);width:100%}
   .add{flex-direction:column;gap:5px;padding:7px 2px 6px}
@@ -136,6 +138,9 @@ aside.right{border-left:1px solid var(--line)}
 .item .r{text-align:right;font-size:12px;font-variant-numeric:tabular-nums;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .item .r .pr{font-weight:600}
 .item .r .ct{font-size:10.5px;color:var(--muted)}
+.item .r .spot.tl,.mcar .pz.tl{background:color-mix(in srgb,#c4572f 16%,transparent);color:var(--fg);border-color:transparent}
+.tl-cars{display:flex;flex-direction:column;gap:4px}
+.tl-cars .btn{justify-content:flex-start;white-space:normal;text-align:left}
 .item .r .spot{font:600 11px/1 var(--font-plate);padding:2px 6px;border-radius:4px;background:var(--bg);border:1px solid var(--line)}
 .item .r .place{font-size:11px;padding:2px 7px;border-radius:5px;border:1px solid var(--accent);color:var(--accent);background:transparent}
 .empty{color:var(--muted);font-size:12.5px;padding:6px 8px}
@@ -337,6 +342,10 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
         <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="1.5" fill="currentColor" fill-opacity=".18"/><path d="M8 19v-5h4v5"/><path d="M14.5 9h3"/></svg></span>
         <span class="lbl"><b>Zona</b><small>oficina, taller…</small></span>
       </button>
+      <button class="add add-taller" id="bTaller" title="Añadir un taller con sus casillas">
+        <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.1L4 16.7 7.3 20l5.3-5.3a4 4 0 0 0 5.1-5.4l-2.4 2.4-2.4-.6-.6-2.4z"/></svg></span>
+        <span class="lbl"><b>Taller</b><small>con casillas</small></span>
+      </button>
       <button class="add add-text" id="bText" title="Añadir un rótulo">
         <span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M5 6.5V5h14v1.5M12 5v14M9 19h6"/></svg></span>
         <span class="lbl"><b>Rótulo</b><small>texto</small></span>
@@ -441,7 +450,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-19.1';
+const APP_VERSION = '2026-11-25.1';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -480,6 +489,7 @@ const ZONAS = [
   {k:'oficina', n:'Oficina', c:'#c7d5e8'},
   {k:'entrada', n:'Entrada', c:'#f1dc9c'},
   {k:'taller', n:'Taller / preparación', c:'#e2cbbf'},
+  {k:'tallerc', n:'Taller con casillas', c:'#ecc9b4'},
   {k:'verde', n:'Zona verde', c:'#c9e0bf'},
   {k:'obst', n:'Columna / obstáculo', c:'#9ca2a7'},
   {k:'otra', n:'Otra', c:'#d9d4e6'}
@@ -886,7 +896,83 @@ function spotCarRot(s){ return (((s.rot || 0) + (s.h > s.w ? 90 : 0)) % 360 + 36
 function placeInSpot(c, s){ c.x = s.x; c.y = s.y; c.rot = spotCarRot(s); c.spot = s.id; c.placed = true; }
 function carInSpot(spotId){ return S.objs.find(o => o.kind === 'car' && o.placed && o.spot === spotId) || null; }
 function sortedSpots(list){ return list.slice().sort((a, b) => natural(spotPrefix(a.label), spotPrefix(b.label)) || natural(a.label, b.label)); }
-function freeSpots(){ return sortedSpots(objs('spot').filter(s => !carInSpot(s.id))); }
+function freeSpots(){ return sortedSpots(objs('spot').filter(s => !s.taller && !carInSpot(s.id))); }
+/* ---------- Talleres: zonas de tipo taller con sus casillas (plazas con «taller») ---------- */
+const isTaller = z => !!z && z.kind === 'zone' && z.tipo === 'tallerc';
+const talleres = () => objs('zone').filter(isTaller);
+const expoSpots = () => objs('spot').filter(s => !s.taller);
+const tallerSpots = id => objs('spot').filter(s => s.taller === id).sort((a, b) => natural(a.label, b.label));
+const casillaNum = s => String(s.label || '').split(' ').pop();
+function ubicacionDe(c){ if (!c.placed) return ''; const sp = c.spot ? byId(c.spot) : null; return sp && sp.taller ? sp.taller : 'expo'; }
+function ubicacionNombre(v){ return v === 'expo' ? 'Exposición' : v ? ((byId(v) || {}).label || 'Taller') : 'Sin colocar'; }
+function ubicOptions(){ return [{v:'expo', n:'Exposición'}, ...talleres().map(t => ({v:t.id, n:'Taller · ' + (t.label || 'Taller')})), {v:'', n:'Sin colocar'}]; }
+// mueve coches a la exposición, a un taller (primera casilla libre) o los retira
+function moverA(ids, dest){
+  let ok = 0, full = 0;
+  mutate(() => {
+    for (const id of ids) {
+      const c = byId(id); if (!isCar(c) || ubicacionDe(c) === dest) continue;
+      if (!dest) { c.placed = false; c.spot = null; ok++; continue; }
+      const sp = (dest === 'expo' ? sortedSpots(expoSpots()) : tallerSpots(dest)).find(x => !carInSpot(x.id));
+      if (sp) { placeInSpot(c, sp); ok++; } else full++;
+    }
+  });
+  const nm = ubicacionNombre(dest);
+  if (full) toast(dest === 'expo' ? `No quedan plazas libres en la exposición${ok ? ` (${ok} movidos)` : ''}.` : `El taller «${nm}» está lleno${ok ? ` (${ok} movidos)` : ''}. Añade casillas desde su ficha.`);
+  else if (ok) toast(ids.length === 1 ? (dest ? `Movido a ${dest === 'expo' ? 'la exposición' : '«' + nm + '»'}${(() => { const c = byId(ids[0]); const sp = c && c.spot ? byId(c.spot) : null; return sp ? ', ' + (sp.taller ? 'casilla ' + casillaNum(sp) : 'plaza ' + sp.label) : ''; })()}.` : 'Retirado del plano.') : `${ok} coches movidos a ${dest ? '«' + nm + '»' : '«Sin colocar»'}.`);
+  return {ok, full};
+}
+function ubicSelect(id, value){ const sel_ = mkSelect(id, ubicOptions(), value); return sel_; }
+function openTaller(){
+  if (!canWrite) { mutate(() => {}); return; }
+  const n0 = talleres().length + 1;
+  const iN = mkInput('tl-name', 'text', n0 === 1 ? 'Taller' : 'Taller ' + n0, {maxLength:30});
+  const iC = mkInput('tl-n', 'number', 4, {min:1, max:40}), iW = mkInput('tl-w', 'number', 3, {step:.1, min:2}), iD = mkInput('tl-d', 'number', 6, {step:.1, min:3});
+  modal('Nuevo taller', [P('Se dibuja al lado de la exposición, con sus casillas. Después, en la ficha de cada coche, elige el taller en «Ubicación» y el coche se coloca solo en la primera casilla libre.'),
+    grid(mkField('Nombre (p. ej. Chapa y pintura, Mecánica)', iN, true), mkField('Número de casillas', iC), mkField('Ancho de casilla (m)', iW), mkField('Fondo de casilla (m)', iD))],
+  [btn('Cancelar', closeModal), btn('Crear taller', () => {
+    const name = iN.value.trim() || 'Taller', n = Math.max(1, Math.min(40, +iC.value || 4)), w = Math.max(2, +iW.value || 3), d = Math.max(3, +iD.value || 6);
+    const zw = r2(n * w + 1.2), zh = r2(d + 2.2);
+    // posición: debajo del último taller, o a la derecha de todo lo dibujado
+    const prev = talleres(); let left, top;
+    if (prev.length) { const t = prev[prev.length - 1]; const cs = corners(t); left = Math.min(...cs.map(c => c[0])); top = Math.max(...cs.map(c => c[1])) + 1.5; }
+    else { const all = S.objs.filter(o => o.kind === 'zone' || o.kind === 'spot'); left = all.length ? Math.max(...all.map(o => Math.max(...corners(o).map(c => c[0])))) + 2.5 : 2; top = 1; }
+    left = snapV(left); top = snapV(top);
+    const z = {id:uid(), kind:'zone', label:name, tipo:'tallerc', x:r2(left + zw / 2), y:r2(top + zh / 2), w:zw, h:zh, rot:0};
+    mutate(() => {
+      S.objs.push(z);
+      for (let i = 0; i < n; i++) S.objs.push({id:uid(), kind:'spot', label:`${name} ${i + 1}`, taller:z.id, x:r2(left + .6 + w * (i + .5)), y:r2(top + 1.4 + d / 2), w:d, h:w, rot:90});
+      S.W = Math.max(S.W, Math.ceil(left + zw + 1)); S.H = Math.max(S.H, Math.ceil(top + zh + 1));
+      sel = new Set([z.id]);
+    });
+    closeModal(); focusOn([z.id]); toast(`Taller «${name}» creado con ${n} casillas.`);
+  }, 'primary')]);
+  setTimeout(() => iN.select(), 0);
+}
+function addCasilla(t){
+  mutate(() => {
+    const sp = tallerSpots(t.id), last = sp[sp.length - 1];
+    const [ax, ay] = rotP(1, 0, t.rot || 0);
+    let n;
+    if (!last) { const w = 3, d = Math.max(3, t.h - 2.2); n = {id:uid(), kind:'spot', label:`${t.label} 1`, taller:t.id, x:0, y:0, w:d, h:w, rot:((t.rot || 0) + 90) % 360}; const [lx, ly] = rotP(-t.w / 2 + .6 + w / 2, -t.h / 2 + 1.4 + d / 2, t.rot || 0); n.x = r2(t.x + lx); n.y = r2(t.y + ly); S.objs.push(n); return; }
+    const prev = sp[sp.length - 2];
+    const dx = prev ? last.x - prev.x : ax * last.h, dy = prev ? last.y - prev.y : ay * last.h;
+    n = Object.assign(clone(last), {id:uid(), label:`${t.label} ${(+casillaNum(last) || sp.length) + 1}`, x:r2(last.x + dx), y:r2(last.y + dy)});
+    S.objs.push(n);
+    const along = Math.abs(dx * ax + dy * ay); t.w = r2(t.w + along); t.x = r2(t.x + dx / 2); t.y = r2(t.y + dy / 2);
+  });
+}
+function removeCasilla(t){
+  const sp = tallerSpots(t.id), last = sp[sp.length - 1];
+  if (!last) return;
+  if (carInSpot(last.id)) { toast('La última casilla tiene un coche: muévelo antes.'); return; }
+  mutate(() => {
+    const prev = sp[sp.length - 2]; const [ax, ay] = rotP(1, 0, t.rot || 0);
+    const dx = prev ? last.x - prev.x : 0, dy = prev ? last.y - prev.y : 0;
+    S.objs = S.objs.filter(o => o.id !== last.id);
+    if (prev) { const along = Math.abs(dx * ax + dy * ay); t.w = r2(Math.max(1, t.w - along)); t.x = r2(t.x - dx / 2); t.y = r2(t.y - dy / 2); }
+  });
+}
 // forma real que ocupa cada coche: si está en una plaza, el hueco de la plaza; si está suelto, sus medidas
 function carShape(c){
   const sp = c.spot ? byId(c.spot) : null;
@@ -1008,11 +1094,13 @@ function renderPlan(opts = {}){
   for (const o of S.objs) {
     const selected = showSel && sel.has(o.id);
     if (o.kind === 'zone') {
-      const z = ZONAS.find(t => t.k === o.tipo) || ZONAS[5];
+      const z = ZONAS.find(t => t.k === o.tipo) || ZONAS.find(t => t.k === 'otra');
       const g = E('g', {'data-id':o.id, transform:tf(o), style:'cursor:move'}, [
         E('rect', {x:-o.w/2, y:-o.h/2, width:o.w, height:o.h, rx:.15, fill:z.c, 'fill-opacity':.9, stroke:shade(z.c, .6), 'stroke-width':.08}),
         o.tipo === 'obst' ? E('path', {d:`M${-o.w/2} ${-o.h/2}L${o.w/2} ${o.h/2}M${o.w/2} ${-o.h/2}L${-o.w/2} ${o.h/2}`, stroke:shade(z.c, .5), 'stroke-width':.06}) : null,
-        E('g', {transform:`rotate(${readable(o.rot)})`}, [T(0, 0, o.label || z.n, {fill:'#232a28', 'font-size':Math.max(.35, Math.min(.8, o.w / Math.max(4, (o.label || '').length) * 1.4, o.h * .35)), 'font-family':font, 'font-weight':600})])
+        o.tipo === 'tallerc'
+          ? E('g', {transform:`rotate(${readable(o.rot)})`}, [T(0, (readable(o.rot) ? 1 : -1) * (o.h / 2 - .7), (o.label || 'Taller').toUpperCase(), {fill:'#5a2e1c', 'font-size':.62, 'font-family':font, 'font-weight':700, 'letter-spacing':.06})])
+          : E('g', {transform:`rotate(${readable(o.rot)})`}, [T(0, 0, o.label || z.n, {fill:'#232a28', 'font-size':Math.max(.35, Math.min(.8, o.w / Math.max(4, (o.label || '').length) * 1.4, o.h * .35)), 'font-family':font, 'font-weight':600})])
       ]);
       if (selected) {
         g.append(E('rect', {x:-o.w/2 - .12, y:-o.h/2 - .12, width:o.w + .24, height:o.h + .24, fill:'none', stroke:C.accent, 'stroke-width':.12, rx:.2}));
@@ -1024,7 +1112,7 @@ function renderPlan(opts = {}){
       const g = E('g', {'data-id':o.id, transform:tf(o), style:'cursor:move'}, [
         E('rect', {class:'stall', x:-o.w/2, y:-o.h/2, width:o.w, height:o.h, fill:C.stallFill, stroke:C.stall, 'stroke-width':.1})
       ]);
-      if (!occ) g.append(E('g', {transform:`rotate(${readable(o.rot) - (Math.abs(((o.rot % 180) + 180) % 180 - 90) < 1 ? 90 : 0)})`}, [T(0, 0, o.label || '', {fill:C.stall, 'font-size':Math.min(.75, o.h * .32), 'font-family':fplate, 'font-weight':700, 'fill-opacity':.9})]));
+      if (!occ) g.append(E('g', {transform:`rotate(${readable(o.rot) - (Math.abs(((o.rot % 180) + 180) % 180 - 90) < 1 ? 90 : 0)})`}, [T(0, 0, o.taller ? casillaNum(o) : (o.label || ''), {fill:C.stall, 'font-size':Math.min(.75, o.h * .32), 'font-family':fplate, 'font-weight':700, 'fill-opacity':.9})]));
       if (selected) g.append(E('rect', {x:-o.w/2 - .1, y:-o.h/2 - .1, width:o.w + .2, height:o.h + .2, fill:'none', stroke:C.accent, 'stroke-width':.12}));
       layers.spot.append(g);
     } else if (o.kind === 'car' && o.placed) {
@@ -1145,7 +1233,7 @@ function renderList(){
     const p = document.createElement('span'); p.className = 'pr';
     if (+c.precioFin) { p.textContent = eur.format(+c.precioFin); p.title = 'Precio financiado'; const ct = document.createElement('small'); ct.className = 'ct'; ct.textContent = +c.precio ? 'Contado ' + eur.format(+c.precio) : ''; r.append(p); if (ct.textContent) r.append(ct); }
     else { p.textContent = +c.precio ? eur.format(+c.precio) : '—'; p.title = 'Precio al contado'; r.append(p); }
-    if (c.placed) { const sp = document.createElement('span'); sp.className = 'spot'; sp.textContent = c.spot ? (byId(c.spot)?.label || '·') : 'libre'; r.append(sp); }
+    if (c.placed) { const sp = document.createElement('span'); sp.className = 'spot' + (ubicacionDe(c) && ubicacionDe(c) !== 'expo' ? ' tl' : ''); sp.textContent = c.spot ? (byId(c.spot)?.label || '·') : 'libre'; r.append(sp); }
     else { const bt = document.createElement('button'); bt.className = 'place'; bt.textContent = 'Colocar'; bt.dataset.place = c.id; r.append(bt); }
     d.append(t, r); L.append(d);
   };
@@ -1157,11 +1245,11 @@ function renderList(){
 }
 
 function renderStats(){
-  const spots = objs('spot'), cars = objs('car');
+  const spots = expoSpots(), cars = objs('car');
   const occ = spots.filter(s => carInSpot(s.id)).length;
   const exp = cars.filter(c => !isSold(c));
   const st = $('#stats'); st.replaceChildren();
-  [[`${occ}/${spots.length}`, 'plazas ocupadas'], [spots.length - occ, 'plazas libres'], [exp.filter(c => !c.placed).length, 'coches sin colocar']].forEach(([v, l]) => {
+  [[`${occ}/${spots.length}`, 'plazas ocupadas'], [spots.length - occ, 'plazas libres'], [exp.filter(c => !c.placed).length, 'coches sin colocar'], ...(talleres().length ? [[cars.filter(c => ubicacionDe(c) && ubicacionDe(c) !== 'expo').length, 'en talleres']] : [])].forEach(([v, l]) => {
     const d = document.createElement('div'); d.className = 'stat'; const b = document.createElement('b'); b.textContent = v; const s = document.createElement('small'); s.textContent = l; d.append(b, s); st.append(d);
   });
   const al = $('#alerts'); al.replaceChildren();
@@ -1248,7 +1336,8 @@ function renderProps(){
              field(o, 'color', 'Color', 'text', {list:'dl-colores'}),
              field(o, 'notas', 'Notas', 'textarea', {full:true}))));
       const se = P.querySelector('#p-estado'); if (se) { se.style.boxShadow = `inset 5px 0 0 ${estadoColor(o.estado)}`; se.style.paddingLeft = '12px'; }
-      const pos = section('En el plano', kv('Plaza', o.placed ? (sp ? sp.label : 'Fuera de plaza') : 'Sin colocar'));
+      const ubi = ubicSelect('p-ubic', ubicacionDe(o)); ubi.onchange = () => moverA([o.id], ubi.value);
+      const pos = section('Ubicación', mkField('Dónde está', ubi, true), kv(sp && sp.taller ? 'Casilla' : 'Plaza', o.placed ? (sp ? (sp.taller ? casillaNum(sp) + ' · ' + ((byId(sp.taller) || {}).label || '') : sp.label) : 'Fuera de plaza') : 'Sin colocar'));
       if (o.placed) pos.append(grid(field(o, 'L', 'Largo (m)', 'number', {step:.05, min:2}), field(o, 'A', 'Ancho (m)', 'number', {step:.05, min:1}), field(o, 'rot', 'Giro (°)', 'number', {step:15})));
       pos.append(actions(
         o.placed ? btn('Girar 90°', () => rotateSel(90)) : btn('Colocar en plaza libre', () => placeAuto([o.id]), 'primary'),
@@ -1265,10 +1354,20 @@ function renderProps(){
       s.append(actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), c ? btn('Ver coche', () => { sel = new Set([c.id]); render(); }) : null, confirmBtn('Borrar plaza', deleteSel)));
       P.append(s);
     } else if (o.kind === 'zone') {
+      if (o.tipo === 'tallerc') {
+        const sp = tallerSpots(o.id), dentro = sp.map(x => carInSpot(x.id)).filter(Boolean);
+        const st = section('Taller', grid(field(o, 'label', 'Nombre', 'text', {full:true, after:t => { for (const x of objs('spot')) if (x.taller === t.id) x.label = `${t.label} ${casillaNum(x)}`; }})), kv('Casillas', `${sp.length} (${dentro.length} ocupadas)`));
+        st.append(actions(btn('+ Añadir casilla', () => addCasilla(o), 'primary'), btn('Quitar la última', () => removeCasilla(o))));
+        if (dentro.length) { const l = document.createElement('div'); l.className = 'tl-cars'; dentro.forEach(c => { const b = btn(`${casillaNum(byId(c.spot))} · ${plate(c)} · ${carTitle(c)}`, () => { sel = new Set([c.id]); render(); }); l.append(b); }); st.append(l); }
+        const p2 = document.createElement('p'); p2.style.cssText = 'margin:0;font-size:12px;color:var(--muted)'; p2.textContent = 'Arrastra el taller para moverlo con sus casillas y coches. Para meter un coche, elige este taller en «Ubicación» de su ficha.';
+        st.append(p2, actions(btn('Girar 90°', () => rotateSel(90)), confirmBtn('Borrar taller', deleteSel)));
+        P.append(st);
+      } else {
       const s = section('Zona', grid(field(o, 'label', 'Nombre', 'text', {full:true}), field(o, 'tipo', 'Tipo', 'select', {full:true, options:ZONAS.map(z => ({v:z.k, n:z.n}))}), field(o, 'w', 'Ancho (m)', 'number', {step:.5, min:.5}), field(o, 'h', 'Fondo (m)', 'number', {step:.5, min:.5}), field(o, 'rot', 'Giro (°)', 'number', {step:15})));
       const p = document.createElement('p'); p.style.cssText = 'margin:0;font-size:12px;color:var(--muted)'; p.textContent = 'Arrastra el punto de la esquina para cambiar el tamaño.';
       s.append(p, actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), confirmBtn('Borrar zona', deleteSel)));
       P.append(s);
+      }
     } else if (o.kind === 'text') {
       P.append(section('Rótulo', grid(field(o, 'label', 'Texto', 'text', {full:true}), field(o, 'size', 'Tamaño (m)', 'number', {step:.1, min:.2}), field(o, 'rot', 'Giro (°)', 'number', {step:15})), actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), confirmBtn('Borrar rótulo', deleteSel))));
     }
@@ -1281,6 +1380,8 @@ function renderProps(){
     if (n.car > 0) {
       const iC = mkSelect('mc-cat', [{v:'', n:'Sin categoría'}, ...cats().map(k => ({v:k.id, n:k.name}))], '');
       const carIds = items.filter(isCar).map(c => c.id);
+      const iU = ubicSelect('mc-ubic', 'expo');
+      P.append(section(`Mover los ${n.car} coches`, mkField('Llevar a', iU, true), actions(btn('Mover', () => moverA(carIds, iU.value), 'primary'))));
       const iE = mkSelect('mc-est', ESTADOS_LIST().map(x => ({v:x, n:x})), estadoBase());
       P.append(section(`Estado de los ${n.car} coches`, mkField('Estado', iE, true), actions(btn('Cambiar estado', () => {
         mutate(() => carIds.forEach(id => { const c = byId(id); if (c) c.estado = iE.value; }));
@@ -1328,6 +1429,7 @@ function addText(){ const [x, y] = centerView(); mutate(() => { const t = {id:ui
 function rotateSel(d){
   mutate(() => {
     const picked = [...sel].map(byId).filter(o => o && (o.kind !== 'car' || o.placed));
+    for (const z of picked.filter(isTaller)) for (const sp of objs('spot')) if (sp.taller === z.id && !picked.includes(sp)) picked.push(sp);
     if (!picked.length) return;
     const ids = new Set(picked.map(o => o.id));
     const movers = picked.slice();
@@ -1389,7 +1491,8 @@ function unplace(ids){ mutate(() => ids.forEach(id => { const c = byId(id); if (
 function deleteSel(){
   mutate(() => {
     const ids = new Set([...sel].filter(id => !isCar(byId(id))));
-    for (const c of objs('car')) if (c.spot && ids.has(c.spot)) c.spot = null;
+    for (const sp of objs('spot')) if (sp.taller && ids.has(sp.taller)) ids.add(sp.id);
+    for (const c of objs('car')) if (c.spot && ids.has(c.spot)) { if ((byId(c.spot) || {}).taller) c.placed = false; c.spot = null; }
     S.objs = S.objs.filter(o => !ids.has(o.id));
     for (const id of ids) sel.delete(id);
   });
@@ -1458,6 +1561,7 @@ svg.addEventListener('pointerdown', e => {
     else if (!sel.has(id)) sel = new Set([id]);
     else deferSelect = true;
     const moving = new Set([...sel].filter(i => { const o = byId(i); return o && (o.kind !== 'car' || o.placed); }));
+    for (const sp of objs('spot')) if (sp.taller && moving.has(sp.taller)) moving.add(sp.id);
     for (const c of objs('car')) if (c.placed && c.spot && moving.has(c.spot)) moving.add(c.id);
     drag = {type:'move', id, p0:p, start:{x:e.clientX, y:e.clientY}, moved:false, deferSelect, before:snapMap(), ro:!canWrite,
             items:[...moving].map(i => { const o = byId(i); return {o, x0:o.x, y0:o.y, spot0:o.spot}; })};
@@ -1655,7 +1759,7 @@ document.addEventListener('keydown', e => {
   if (arrows[e.key]) {
     e.preventDefault(); const st = e.shiftKey ? 1 : .1, [ax, ay] = arrows[e.key];
     mutate(() => {
-      const ids = new Set(sel); for (const c of objs('car')) if (c.spot && ids.has(c.spot)) ids.add(c.id);
+      const ids = new Set(sel); for (const sp of objs('spot')) if (sp.taller && ids.has(sp.taller)) ids.add(sp.id); for (const c of objs('car')) if (c.spot && ids.has(c.spot)) ids.add(c.id);
       for (const id of ids) { const o = byId(id); if (!o || (isCar(o) && !o.placed)) continue; o.x = r2(o.x + ax * st); o.y = r2(o.y + ay * st); if (isCar(o) && o.spot && !ids.has(o.spot)) o.spot = null; }
     });
   }
@@ -1741,7 +1845,7 @@ const CRITERIOS = [
   {v:'color', n:'Color (agrupa los del mismo color)', f:(a, b) => natural(a.color, b.color) || (+a.precio - +b.precio)}
 ];
 function openSort(){
-  const spots = objs('spot');
+  const spots = objs('spot').filter(s => !s.taller);
   if (!spots.length) { modal('Ordenar exposición', [P('Primero dibuja las plazas con «+ Fila de plazas». Después podrás colocar los coches automáticamente por precio, marca, año…')], [btn('Crear una fila de plazas', () => { closeModal(); openRow(); }, 'primary')]); return; }
   const prefixes = [...new Set(spots.map(s => spotPrefix(s.label)))].sort(natural);
   const crit = mkSelect('o-crit', CRITERIOS, 'fin_asc');
@@ -1761,13 +1865,14 @@ function openSort(){
   modal('Ordenar exposición', body, [btn('Cancelar', closeModal), btn('Ordenar coches', () => { const r = planSort(read(), false); closeModal(); toast(`Colocados ${r.placedN} coches.` + (r.left ? ` ${r.left} sin plaza.` : '') + ' Puedes deshacerlo con Ctrl+Z.'); }, 'primary')]);
 }
 function planSort(o, dry){
-  const spotsSel = sortedSpots(objs('spot').filter(s => o.rows.has(spotPrefix(s.label))));
+  const spotsSel = sortedSpots(objs('spot').filter(s => !s.taller && o.rows.has(spotPrefix(s.label))));
   const selIds = new Set(spotsSel.map(s => s.id));
   const cars = objs('car');
   const fixed = o.keepRes ? cars.filter(c => tipoDe(c) === 'reservado' && c.placed && c.spot && selIds.has(c.spot)) : [];
   const fixedSpots = new Set(fixed.map(c => c.spot));
   const free = spotsSel.filter(s => !fixedSpots.has(s.id));
-  const pool = cars.filter(c => !fixed.includes(c) && !isSold(c) && (o.prep || tipoDe(c) !== 'fuera') &&
+  const enTaller = c => c.placed && c.spot && (byId(c.spot) || {}).taller;
+  const pool = cars.filter(c => !fixed.includes(c) && !isSold(c) && !enTaller(c) && (o.prep || tipoDe(c) !== 'fuera') &&
     (o.who === 'all' || !c.placed || (c.spot && selIds.has(c.spot))));
   if (dry) return {cars:pool.length, spots:free.length};
   const cmp = CRITERIOS.find(c => c.v === o.crit).f;
@@ -1788,7 +1893,7 @@ function planSort(o, dry){
 
 /* ---------- Vista móvil ---------- */
 const isMobileUI = () => matchMedia('(max-width: 760px)').matches;
-let mview = lsGet(LS_KEY + '-mvista') || 'stock', msort = lsGet(LS_KEY + '-morden') || 'plaza', mUnplaced = false;
+let mview = lsGet(LS_KEY + '-mvista') || 'stock', msort = lsGet(LS_KEY + '-morden') || 'plaza', mUnplaced = false, mLoc = '';
 function setView(v){
   mview = v; if (v !== 'ficha') lsSet(LS_KEY + '-mvista', v);
   document.body.dataset.mv = v;
@@ -1801,6 +1906,7 @@ function mMatches(c){
   if (filter.estado && c.estado !== filter.estado) return false;
   if (filter.cat === '__none' ? catById(c.cat) : filter.cat && c.cat !== filter.cat) return false;
   if (mUnplaced && c.placed) return false;
+  if (mLoc && ubicacionDe(c) !== mLoc) return false;
   const q = norm($('#mq').value).replace(/\s+/g, '');
   if (!q) return true;
   const hay = [c.matricula, c.marca, c.modelo, c.marca + c.modelo, c.version, c.color, c.combustible, c.estado, catName(c), spotLabel(c), c.anio, c.precio, c.precioFin, c.notas].map(v => norm(v).replace(/\s+/g, '')).join('|');
@@ -1824,10 +1930,11 @@ function renderMobile(){
   // filtros rápidos
   const ch = $('#mchips'); ch.replaceChildren();
   const chip = (txt, n, color, on, fn) => { const b = document.createElement('button'); b.className = 'mchip' + (on ? ' on' : ''); if (color) { const i = document.createElement('i'); i.style.background = color; b.append(i); } b.append(txt); if (n != null) { const c = document.createElement('b'); c.textContent = n; b.append(' ', c); } b.onclick = fn; ch.append(b); };
-  chip('Todos', cars.length, null, !filter.estado && !mUnplaced && !filter.cat, () => { filter.estado = ''; filter.cat = ''; mUnplaced = false; render(); });
+  chip('Todos', cars.length, null, !filter.estado && !mUnplaced && !filter.cat && !mLoc, () => { filter.estado = ''; filter.cat = ''; mUnplaced = false; mLoc = ''; render(); });
   estados().forEach(e => { const n = cars.filter(c => c.estado === e.name).length; if (n || filter.estado === e.name) chip(e.name, n, e.color, filter.estado === e.name, () => { filter.estado = filter.estado === e.name ? '' : e.name; render(); }); });
   const nu = cars.filter(c => !c.placed && !isSold(c)).length;
   if (nu || mUnplaced) chip('Sin colocar', nu, null, mUnplaced, () => { mUnplaced = !mUnplaced; render(); });
+  if (talleres().length) { const sp = document.createElement('span'); sp.className = 'mchip sep'; sp.textContent = 'Ubicación:'; ch.append(sp); [{v:'expo', n:'Exposición'}, ...talleres().map(t => ({v:t.id, n:t.label || 'Taller'}))].forEach(o => { const n = cars.filter(c => ubicacionDe(c) === o.v).length; chip(o.n, n, o.v === 'expo' ? null : '#c4572f', mLoc === o.v, () => { mLoc = mLoc === o.v ? '' : o.v; render(); }); }); }
   if (cats().length) { const sp = document.createElement('span'); sp.className = 'mchip sep'; sp.textContent = 'Categoría:'; ch.append(sp); cats().forEach(k => { const n = cars.filter(c => c.cat === k.id).length; chip(k.name, n, k.color, filter.cat === k.id, () => { filter.cat = filter.cat === k.id ? '' : k.id; render(); }); }); }
   // lista
   let vis = cars.filter(mMatches).sort(mSortFn());
@@ -1858,7 +1965,7 @@ function mCard(c){
   const mp = document.createElement('div'); mp.className = 'mp';
   const pf = document.createElement('div'); pf.className = 'pf'; pf.textContent = +c.precioFin ? eur.format(+c.precioFin) : +c.precio ? eur.format(+c.precio) : '—';
   const pc = document.createElement('div'); pc.className = 'pc'; pc.textContent = +c.precioFin && +c.precio ? 'Contado ' + eur.format(+c.precio) : +c.precioFin ? 'Financiado' : '';
-  const pz = document.createElement('span'); const lab = spotLabel(c); pz.className = 'pz' + (lab ? '' : ' no'); pz.textContent = lab || 'Sin colocar';
+  const pz = document.createElement('span'); const lab = spotLabel(c); pz.className = 'pz' + (lab ? '' : ' no') + (ubicacionDe(c) && ubicacionDe(c) !== 'expo' ? ' tl' : ''); pz.textContent = lab || 'Sin colocar';
   mp.append(pf, pc, pz);
   b.append(bar, mi, mp);
   return b;
@@ -1876,7 +1983,7 @@ function openCarSheet(id){
   prices.append(pbox('Financiado', c.precioFin), pbox('Al contado', c.precio));
   const dl = el('dl');
   const row = (k, v) => { if (v === '' || v == null) return; dl.append(el('dt', '', k), el('dd', '', String(v))); };
-  row('Plaza', spotLabel(c) ? `${spotLabel(c)} · ${planName(activePlan)}` : `Sin colocar en «${planName(activePlan)}»`);
+  row(ubicacionDe(c) && ubicacionDe(c) !== 'expo' ? 'Taller' : 'Plaza', spotLabel(c) ? `${spotLabel(c)} · ${planName(activePlan)}` : `Sin colocar en «${planName(activePlan)}»`);
   row('Año', c.anio); row('Kilómetros', +c.km ? nf.format(+c.km) + ' km' : ''); row('Combustible', c.combustible); row('Color', c.color); row('Categoría', catName(c)); row('Notas', c.notas);
   card.append(grab, hd, prices, dl);
   // cambiar el estado con un toque
@@ -1884,6 +1991,12 @@ function openCarSheet(id){
   const ests = el('div', 'ests');
   estados().forEach(e => { const b = el('button', c.estado === e.name ? 'on' : ''); const i = el('i'); i.style.background = e.color; b.append(i, e.name); if (c.estado === e.name) b.style.color = e.color; b.onclick = () => { if (c.estado === e.name) return; mutate(() => { const t = byId(id); if (t) t.estado = e.name; }); if (canWrite) { toast(`${plate(c)}: ${e.name}`); openCarSheet(id); } }; ests.append(b); });
   card.append(ests);
+  if (talleres().length) {
+    card.append(el('h4', '', 'Ubicación'));
+    const ub = el('div', 'ests'), cur = ubicacionDe(c);
+    ubicOptions().forEach(o => { const b = el('button', cur === o.v ? 'on' : ''); const i = el('i'); i.style.background = o.v === 'expo' ? 'var(--accent)' : o.v ? '#c4572f' : 'var(--idle)'; b.append(i, o.v && o.v !== 'expo' ? o.n.replace('Taller · ', '') : o.n); if (cur === o.v) b.style.color = 'var(--accent)'; b.onclick = () => { if (cur === o.v) return; moverA([id], o.v); if (canWrite) openCarSheet(id); }; ub.append(b); });
+    card.append(ub);
+  }
   const acts = el('div', 'acts');
   if (c.placed) acts.append(btn('Ver en el plano', () => { closeSheet(); setView('plano'); sel = new Set([id]); render(); requestAnimationFrame(() => { setViewBox(); focusOn([id]); }); }, 'primary'));
   else acts.append(btn('Colocar en una plaza libre', () => { closeSheet(); placeAuto([id]); setView('plano'); requestAnimationFrame(() => { setViewBox(); focusOn([id]); }); }, 'primary'));
@@ -1900,6 +2013,7 @@ function renderMore(){
   big('⇪', 'Importar stock', 'Pega la tabla de Excel', openImport);
   big('↕', 'Ordenar la exposición', 'Coloca los coches por precio, marca…', () => { setView('plano'); openSort(); });
   big('●', 'Estados', 'Disponible, reservado, vendido…', openEstados);
+  big('⚒', 'Nuevo taller', talleres().length ? talleres().map(t => t.label).join(', ') : 'Chapa, mecánica… con sus casillas', () => { setView('plano'); openTaller(); });
   big('◆', 'Categorías', cats().length ? cats().map(k => k.name).join(', ') : 'SUV, Km 0, Oferta…', openCats);
   h('Exposiciones');
   big('▦', 'Pestañas y movimientos', planes().map(p => p.name).join(' · '), openTabs);
@@ -2346,6 +2460,7 @@ $('#bAddCar').onclick = addCar;
 $('#bRow').onclick = openRow;
 $('#bZone').onclick = addZone;
 $('#bText').onclick = addText;
+$('#bTaller').onclick = () => openTaller();
 $('#bSort').onclick = openSort;
 $('#bUndo').onclick = undo;
 $('#bRedo').onclick = redo;
