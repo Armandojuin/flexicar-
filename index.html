@@ -214,6 +214,24 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 .catrow input[type=color]{width:40px;height:32px;padding:2px;border:1px solid var(--line);border-radius:7px;background:var(--bg);cursor:pointer}
 .catn{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .btn.linkish{justify-content:center}
+.ctabs{display:flex;gap:2px;padding:8px 12px 0;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--panel);z-index:2}
+.ctab{border:0;background:none;padding:9px 10px;font-weight:600;font-size:13.5px;color:var(--muted);border-bottom:2.5px solid transparent;margin-bottom:-1px}
+.ctab.on{color:var(--accent);border-bottom-color:var(--accent)}
+.coverwrap{padding:14px 16px 0;display:flex;flex-direction:column;gap:8px}
+.coverwrap:empty{display:none}
+.cover{border-radius:12px;overflow:hidden;background:var(--bg);aspect-ratio:4/3;display:grid;place-items:center;width:100%}
+.cover img{width:100%;height:100%;object-fit:cover;cursor:zoom-in;display:block}
+.cover.empty{border:2px dashed var(--line);cursor:pointer;color:var(--muted);font-weight:600;font-size:13.5px;text-align:center;padding:12px;aspect-ratio:16/9}
+.cover.empty:hover{border-color:var(--accent);color:var(--accent)}
+.fnote{margin:0;font-size:12.5px;color:var(--muted)}
+.dgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.dph{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--panel);text-align:left;padding:0;display:flex;flex-direction:column;min-width:0}
+.dph:hover{border-color:var(--accent)}
+.dph img{width:100%;aspect-ratio:4/3;object-fit:cover;display:block;background:var(--bg)}
+.dph span{font-size:12.5px;font-weight:600;padding:6px 8px 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dph small{color:var(--muted);font-size:11px;padding:0 8px 7px}
+.fotobig{width:100%;max-height:62vh;object-fit:contain;border-radius:8px;background:#111}
+.mcover{width:100%;aspect-ratio:16/10;object-fit:cover;border-radius:14px;cursor:zoom-in}
 .imgprev{max-width:100%;border:1px solid var(--line);border-radius:8px;background:#fff}
 
 @media (max-width: 980px){
@@ -450,7 +468,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-25.2';
+const APP_VERSION = '2026-11-26.1';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -721,7 +739,7 @@ async function showLastChange(data){
     if (data.lastBy === myId) who = 'tú';
     else { try { const ps = await userCap.profiles([data.lastBy]); who = (ps && ps[data.lastBy] && ps[data.lastBy].name) || ''; } catch (e) {} }
   }
-  el.textContent = `Último cambio ${who ? 'de ' + who + ' ' : ''}${when}`;
+  el.textContent = `Último cambio ${who === 'tú' ? 'tuyo ' : who ? 'de ' + who + ' ' : ''}${when}`;
 }
 function setSync(st){
   const el = $('#sync'); if (!el) return;
@@ -1361,6 +1379,11 @@ function renderProps(){
     const o = items[0];
     if (o.kind === 'car') {
       const sp = o.spot ? byId(o.spot) : null;
+      if (carTabFor !== o.id) { carTabFor = o.id; carTab = 'datos'; }
+      P.append(carTabs(o));
+      if (carTab === 'danos') P.append(damageSection(o));
+      else {
+      P.append(coverSection(o));
       P.append(section('Coche',
         grid(field(o, 'matricula', 'Matrícula', 'text', {full:true, cls:'plate', ph:'0000 ABC'}),
              field(o, 'marca', 'Marca', 'text', {list:'dl-marcas'}),
@@ -1388,6 +1411,7 @@ function renderProps(){
       ));
       P.append(pos);
       P.append(section('Borrar', actions(confirmBtn('Eliminar coche del stock', () => mutate(() => { S.objs = S.objs.filter(x => x.id !== o.id); sel.clear(); })))));
+      }
     } else if (o.kind === 'spot') {
       const c = carInSpot(o.id);
       const s = section('Plaza', grid(field(o, 'label', 'Nombre', 'text', {full:true}), field(o, 'w', 'Fondo (m)', 'number', {step:.1, min:1}), field(o, 'h', 'Ancho (m)', 'number', {step:.1, min:1}), field(o, 'rot', 'Giro (°)', 'number', {step:15})), kv('Ocupada por', c ? `${plate(c)} · ${carTitle(c)}` : 'Libre'));
@@ -1951,6 +1975,123 @@ function planSort(o, dry){
   return {placedN, left};
 }
 
+/* ---------- Fotos: portada y reporte de daños (en la web compartida, tabla «fotos» de Supabase) ---------- */
+let carTab = 'datos', carTabFor = null, sheetCarId = null;
+const fotoCache = new Map();
+const fotosOK = () => backend === 'cloud' && !!sb;
+const fotosDe = id => (fotoCache.get(id) || {}).list || [];
+async function loadFotos(carId, force){
+  if (!fotosOK()) return null;
+  const c = fotoCache.get(carId);
+  if (c && !force && (c.loading || Date.now() - c.ts < 60000)) return c;
+  const e = {list:c ? c.list : null, ts:Date.now(), loading:true, missing:false, err:false}; fotoCache.set(carId, e);
+  try {
+    const {data, error} = await sb.from('fotos').select('id,tipo,miniatura,nota,created_at,autor').eq('car_id', carId).order('created_at');
+    if (error) { if (/PGRST205|42P01|does not exist|Could not find the table/i.test((error.code || '') + ' ' + (error.message || ''))) e.missing = true; else e.err = true; }
+    else e.list = data || [];
+  } catch (x) { e.err = true; }
+  e.loading = false; e.ts = Date.now();
+  refreshFotos(carId);
+  return e;
+}
+function refreshFotos(carId){
+  if (sel.size === 1 && sel.has(carId)) renderProps();
+  if (sheetCarId === carId && !$('#msheet').hidden) openCarSheet(carId);
+}
+function readImage(file){ return new Promise((ok, ko) => { const url = URL.createObjectURL(file); const img = new Image(); img.onload = () => { URL.revokeObjectURL(url); ok(img); }; img.onerror = () => { URL.revokeObjectURL(url); ko(new Error('imagen')); }; img.src = url; }); }
+function toJpeg(img, max, q){
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); return c.toDataURL('image/jpeg', q);
+}
+function pickFotos(carId, tipo){
+  if (!fotosOK()) { toast('Las fotos funcionan en la web compartida.'); return; }
+  if (!canWrite) { openPass(); return; }
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = tipo === 'danio';
+  inp.onchange = () => { if (inp.files && inp.files.length) subirFotos(carId, tipo, [...inp.files]); };
+  inp.click();
+}
+async function subirFotos(carId, tipo, files){
+  let ok = 0;
+  for (let i = 0; i < files.length; i++) {
+    toast(files.length > 1 ? `Subiendo foto ${i + 1} de ${files.length}…` : 'Subiendo foto…');
+    try {
+      const img = await readImage(files[i]);
+      const full = toJpeg(img, 1600, .8), thumb = toJpeg(img, tipo === 'portada' ? 720 : 360, .72);
+      const {error} = await sb.rpc('guardar_foto', {p_clave:teamPass, p_id:uid() + uid(), p_car:carId, p_tipo:tipo, p_imagen:full, p_miniatura:thumb, p_nota:null, p_autor:myName || null});
+      if (error) {
+        if (/clave incorrecta|28P01/.test((error.message || '') + (error.code || ''))) { canWrite = false; teamPass = ''; lsSet(LS_KEY + '-clave', ''); setSync('readonly'); openPass('La clave del equipo ha cambiado. Escríbela otra vez y vuelve a subir la foto.'); return; }
+        if (/PGRST202|guardar_foto/.test((error.code || '') + (error.message || ''))) { toast('Las fotos aún no están activadas en la base de datos (falta ejecutar supabase/fotos.sql).'); return; }
+        throw error;
+      }
+      ok++;
+    } catch (e) { toast('No se ha podido subir una foto. Revisa la conexión y vuelve a intentarlo.'); }
+  }
+  if (ok) toast(tipo === 'portada' ? 'Foto de portada guardada.' : ok === 1 ? 'Foto añadida al reporte de daños.' : `${ok} fotos añadidas al reporte de daños.`);
+  await loadFotos(carId, true);
+}
+async function openFoto(f, carId){
+  const img = document.createElement('img'); img.className = 'fotobig'; img.alt = f.tipo === 'portada' ? 'Foto de portada' : 'Foto del reporte de daños'; img.src = f.miniatura || '';
+  const ta = document.createElement('textarea'); ta.id = 'foto-nota'; ta.value = f.nota || ''; ta.placeholder = 'Ej.: arañazo en la puerta trasera izquierda'; ta.style.minHeight = '64px';
+  const meta = P(new Date(f.created_at).toLocaleString('es-ES', {dateStyle:'medium', timeStyle:'short'}) + (f.autor ? ' · ' + f.autor : ''));
+  const foot = [btn('Cerrar', closeModal)];
+  if (canWrite) {
+    foot.unshift(confirmBtn('Borrar foto', async () => { const {error} = await sb.rpc('borrar_foto', {p_clave:teamPass, p_id:f.id}); closeModal(); toast(error ? 'No se ha podido borrar.' : 'Foto borrada.'); loadFotos(carId, true); }));
+    if (f.tipo === 'danio') foot.push(btn('Guardar nota', async () => { const {error} = await sb.rpc('nota_foto', {p_clave:teamPass, p_id:f.id, p_nota:ta.value.trim()}); closeModal(); toast(error ? 'No se ha podido guardar la nota.' : 'Nota guardada.'); loadFotos(carId, true); }, 'primary'));
+  }
+  modal(f.tipo === 'portada' ? 'Foto de portada' : 'Reporte de daños', [img, ...(f.tipo === 'danio' ? [mkField('Nota', ta, true)] : []), meta], foot);
+  try { const {data} = await sb.from('fotos').select('imagen').eq('id', f.id).single(); if (data && data.imagen && img.isConnected) img.src = data.imagen; } catch (e) {}
+}
+function fotosAviso(){
+  const p = document.createElement('p'); p.className = 'fnote';
+  const e = null;
+  p.textContent = 'Las fotos se guardan en la web compartida (armandojuin.github.io/flexicar-).';
+  return p;
+}
+function carTabs(o){
+  const n = fotosDe(o.id).filter(f => f.tipo === 'danio').length;
+  const d = document.createElement('div'); d.className = 'ctabs'; d.setAttribute('role', 'tablist');
+  [['datos', 'Características'], ['danos', 'Reporte de daños' + (n ? ` (${n})` : '')]].forEach(([k, t]) => {
+    const b = document.createElement('button'); b.className = 'ctab' + (carTab === k ? ' on' : ''); b.textContent = t; b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', carTab === k);
+    b.onclick = () => { carTab = k; renderProps(); }; d.append(b);
+  });
+  if (fotosOK()) loadFotos(o.id);
+  return d;
+}
+function coverSection(o){
+  const box = document.createElement('div'); box.className = 'coverwrap';
+  if (!fotosOK()) return box;
+  const e = fotoCache.get(o.id), por = fotosDe(o.id).find(f => f.tipo === 'portada');
+  const c = document.createElement('div');
+  if (e && e.missing) { c.className = 'cover empty'; c.textContent = 'Fotos sin activar: falta ejecutar supabase/fotos.sql en Supabase.'; box.append(c); return box; }
+  if (por) {
+    c.className = 'cover'; const img = document.createElement('img'); img.src = por.miniatura; img.alt = 'Foto de portada de ' + carTitle(o); img.onclick = () => openFoto(por, o.id); c.append(img); box.append(c);
+    if (canWrite) box.append(actions(btn('Cambiar foto', () => pickFotos(o.id, 'portada'))));
+  } else if (e && e.loading && !e.list) { c.className = 'cover empty'; c.textContent = 'Cargando foto…'; box.append(c); }
+  else { c.className = 'cover empty'; c.setAttribute('role', 'button'); c.tabIndex = 0; c.innerHTML = '<span>＋ Añadir foto de portada</span>'; c.onclick = () => pickFotos(o.id, 'portada'); c.onkeydown = ev => { if (ev.key === 'Enter') pickFotos(o.id, 'portada'); }; box.append(c); }
+  return box;
+}
+function damageSection(o){
+  const sec = section('Reporte de daños');
+  if (!fotosOK()) { sec.append(fotosAviso()); return sec; }
+  const e = fotoCache.get(o.id);
+  if (e && e.missing) { const p = document.createElement('p'); p.className = 'fnote'; p.textContent = 'Las fotos aún no están activadas: falta ejecutar supabase/fotos.sql en Supabase.'; sec.append(p); return sec; }
+  sec.append(actions(btn('＋ Subir fotos de daños', () => pickFotos(o.id, 'danio'), 'primary')));
+  const list = fotosDe(o.id).filter(f => f.tipo === 'danio');
+  if (e && e.loading && !e.list) { const p = document.createElement('p'); p.className = 'fnote'; p.textContent = 'Cargando fotos…'; sec.append(p); return sec; }
+  if (!list.length) { const p = document.createElement('p'); p.className = 'fnote'; p.textContent = 'Sin daños registrados. Sube fotos de golpes, arañazos o desperfectos; a cada una le puedes poner una nota.'; sec.append(p); return sec; }
+  const g = document.createElement('div'); g.className = 'dgrid';
+  list.slice().reverse().forEach(f => {
+    const b = document.createElement('button'); b.className = 'dph'; b.onclick = () => openFoto(f, o.id);
+    const img = document.createElement('img'); img.src = f.miniatura; img.alt = f.nota || 'Foto de daño';
+    const t = document.createElement('span'); t.textContent = f.nota || 'Sin nota';
+    const m = document.createElement('small'); m.textContent = new Date(f.created_at).toLocaleDateString('es-ES') + (f.autor ? ' · ' + f.autor : '');
+    b.append(img, t, m); g.append(b);
+  });
+  sec.append(g);
+  return sec;
+}
+
 /* ---------- Vista móvil ---------- */
 const isMobileUI = () => matchMedia('(max-width: 760px)').matches;
 let mview = lsGet(LS_KEY + '-mvista') || 'stock', msort = lsGet(LS_KEY + '-morden') || 'plaza', mUnplaced = false, mLoc = '';
@@ -2030,7 +2171,7 @@ function mCard(c){
   b.append(bar, mi, mp);
   return b;
 }
-function closeSheet(){ const sh = $('#msheet'); sh.hidden = true; sh.querySelector('.mcard').replaceChildren(); }
+function closeSheet(){ sheetCarId = null; const sh = $('#msheet'); sh.hidden = true; sh.querySelector('.mcard').replaceChildren(); }
 function openCarSheet(id){
   const c = byId(id); if (!isCar(c)) return;
   const sh = $('#msheet'), card = sh.querySelector('.mcard'); card.replaceChildren(); sh.hidden = false;
@@ -2045,7 +2186,13 @@ function openCarSheet(id){
   const row = (k, v) => { if (v === '' || v == null) return; dl.append(el('dt', '', k), el('dd', '', String(v))); };
   row(ubicacionDe(c) && ubicacionDe(c) !== 'expo' ? 'Taller' : 'Plaza', spotLabel(c) ? `${spotLabel(c)} · ${planName(activePlan)}` : `Sin colocar en «${planName(activePlan)}»`);
   row('Año', c.anio); row('Kilómetros', +c.km ? nf.format(+c.km) + ' km' : ''); row('Combustible', c.combustible); row('Color', c.color); row('Categoría', catName(c)); row('Notas', c.notas);
-  card.append(grab, hd, prices, dl);
+  sheetCarId = id;
+  const por = fotosDe(id).find(f => f.tipo === 'portada');
+  const nd = fotosDe(id).filter(f => f.tipo === 'danio').length;
+  if (fotosOK()) loadFotos(id);
+  card.append(grab, hd);
+  if (por) { const im = el('img', 'mcover'); im.src = por.miniatura; im.alt = 'Foto de portada'; im.onclick = () => openFoto(por, id); card.append(im); }
+  card.append(prices, dl);
   // cambiar el estado con un toque
   card.append(el('h4', '', 'Estado'));
   const ests = el('div', 'ests');
@@ -2060,7 +2207,9 @@ function openCarSheet(id){
   const acts = el('div', 'acts');
   if (c.placed) acts.append(btn('Ver en el plano', () => { closeSheet(); setView('plano'); sel = new Set([id]); render(); requestAnimationFrame(() => { setViewBox(); focusOn([id]); }); }, 'primary'));
   else acts.append(btn('Colocar en una plaza libre', () => { closeSheet(); placeAuto([id]); setView('plano'); requestAnimationFrame(() => { setViewBox(); focusOn([id]); }); }, 'primary'));
-  acts.append(btn('Editar todos los datos', () => { closeSheet(); sel = new Set([id]); setView('ficha'); render(); }));
+  if (fotosOK()) acts.append(btn(`Reporte de daños${nd ? ` (${nd} ${nd === 1 ? 'foto' : 'fotos'})` : ''}`, () => { closeSheet(); sel = new Set([id]); carTabFor = id; carTab = 'danos'; setView('ficha'); render(); }));
+  if (fotosOK() && !por && canWrite) acts.append(btn('＋ Añadir foto de portada', () => pickFotos(id, 'portada')));
+  acts.append(btn('Editar todos los datos', () => { closeSheet(); sel = new Set([id]); carTabFor = id; carTab = 'datos'; setView('ficha'); render(); }));
   card.append(acts);
 }
 function renderMore(){
