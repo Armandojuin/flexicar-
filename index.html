@@ -468,7 +468,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-26.1';
+const APP_VERSION = '2026-11-26.2';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -1604,7 +1604,38 @@ let drag = null, lastDown = {}, multiMode = false;
 function pt(e){ const p = svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(svg.getScreenCTM().inverse()); }
 function gEl(id){ return svg.querySelector(`[data-id="${id}"]`); }
 
+/* Zoom con dos dedos (pellizcar) en pantallas táctiles */
+const touches = new Map(); let pinch = null;
+function clientToWorld(x, y){ const q = svg.createSVGPoint(); q.x = x; q.y = y; return q.matrixTransform(svg.getScreenCTM().inverse()); }
+function startPinch(){
+  // si el primer dedo ya estaba moviendo algo, se deshace ese movimiento
+  if (drag) {
+    if (drag.before && drag.moved) { const d = diffMaps(drag.before, snapMap()); if (d) applyVals(d, 0); }
+    drag = null; svg.classList.remove('panning');
+  }
+  const [a, b] = [...touches.values()];
+  const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  pinch = {d0:Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), w0:view.w, world:clientToWorld(mx, my)};
+  renderPlan();
+}
+function movePinch(){
+  const [a, b] = [...touches.values()];
+  const d = Math.max(10, Math.hypot(a.x - b.x, a.y - b.y)), mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+  const r = svg.getBoundingClientRect();
+  view.w = Math.min(600, Math.max(4, pinch.w0 * pinch.d0 / d));
+  const k = view.w / r.width;
+  // el punto que estaba entre los dedos se queda entre los dedos
+  view.x = pinch.world.x - (mx - r.left) * k; view.y = pinch.world.y - (my - r.top) * k;
+  view.touched = true; setViewBox();
+}
 svg.addEventListener('pointerdown', e => {
+  if (e.pointerType === 'touch') {
+    // el primer dedo de un gesto nuevo: se olvida cualquier dedo anterior que no llegó a soltarse
+    if (e.isPrimary) { touches.clear(); pinch = null; }
+    touches.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if (touches.size === 2) { svg.setPointerCapture(e.pointerId); startPinch(); return; }
+    if (touches.size > 2 || pinch) return;
+  }
   if (e.button !== 0 && e.button !== 1 && e.button !== 2) return;
   const p = pt(e);
   // mover la vista: rueda del ratón, o arrastrar con el botón central / derecho / barra espaciadora; en pantallas táctiles, con el dedo
@@ -1654,6 +1685,10 @@ svg.addEventListener('pointerdown', e => {
   }
 });
 svg.addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch' && touches.has(e.pointerId)) {
+    touches.set(e.pointerId, {x:e.clientX, y:e.clientY});
+    if (pinch && touches.size >= 2) { movePinch(); return; }
+  }
   if (!drag) return;
   if (!drag.moved && Math.hypot(e.clientX - drag.start.x, e.clientY - drag.start.y) < 4) return;
   drag.moved = true;
@@ -1699,6 +1734,8 @@ svg.addEventListener('pointermove', e => {
   }
 });
 function endDrag(e){
+  if (e && e.pointerType === 'touch') touches.delete(e.pointerId);
+  if (pinch) { if (touches.size < 2) { pinch = null; drag = null; render(); } return; }
   if (!drag) return;
   const d = drag; drag = null; svg.classList.remove('panning');
   svg.querySelectorAll('.stall.hover').forEach(r => r.classList.remove('hover'));
