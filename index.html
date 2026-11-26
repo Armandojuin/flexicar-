@@ -468,7 +468,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-26.2';
+const APP_VERSION = '2026-11-26.3';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -1109,6 +1109,9 @@ function renderPlan(opts = {}){
   const font = cssv('--font-ui'), fplate = cssv('--font-plate');
   svg.replaceChildren();
   const defs = E('defs', {}, [
+    E('linearGradient', {id:'g-sheen', x1:0, y1:0, x2:0, y2:1}, [E('stop', {offset:0, 'stop-color':'#fff', 'stop-opacity':.5}), E('stop', {offset:.55, 'stop-color':'#fff', 'stop-opacity':.14}), E('stop', {offset:1, 'stop-color':'#fff', 'stop-opacity':0})]),
+    E('linearGradient', {id:'g-shade', x1:0, y1:0, x2:0, y2:1}, [E('stop', {offset:0, 'stop-color':'#000', 'stop-opacity':0}), E('stop', {offset:1, 'stop-color':'#000', 'stop-opacity':.2})]),
+    E('filter', {id:'g-blur', x:'-30%', y:'-30%', width:'160%', height:'160%'}, [E('feGaussianBlur', {stdDeviation:.16})]),
     E('pattern', {id:'g1', width:1, height:1, patternUnits:'userSpaceOnUse'}, [E('path', {d:'M1 0H0V1', fill:'none', stroke:C.gmin, 'stroke-width':.025})]),
     E('pattern', {id:'g5', width:5, height:5, patternUnits:'userSpaceOnUse'}, [E('rect', {width:5, height:5, fill:'url(#g1)'}), E('path', {d:'M5 0H0V5', fill:'none', stroke:C.gmaj, 'stroke-width':.05})]),
     E('pattern', {id:'hatch', width:.5, height:.5, patternUnits:'userSpaceOnUse', patternTransform:'rotate(45)'}, [E('rect', {width:.18, height:.5, fill:'rgba(0,0,0,.28)'})])
@@ -1180,11 +1183,21 @@ function renderPlan(opts = {}){
       // dentro de una plaza, el coche se dibuja ocupando la plaza (así se lee mejor)
       const L = sp ? Math.max(2, Math.max(sp.w, sp.h) - .3) : o.L, A = sp ? Math.max(1, Math.min(sp.w, sp.h) - .3) : o.A;
       const crot = sp ? spotCarRot(sp) : (o.rot || 0);
+      // caja de cristal: vidrio tintado del color del estado, brillo arriba, sombra suave debajo
+      const R = Math.min(.55, A * .26), r0 = ((crot % 360) + 360) % 360, vert0 = Math.abs(Math.cos(rad(r0))) < Math.SQRT1_2;
+      const sw = vert0 ? A : L, shh = vert0 ? L : A; // medidas tal y como se ven en pantalla
+      const clipId = 'gc-' + o.id;
+      defs.append(E('clipPath', {id:clipId}, [E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:R})]));
       const g = E('g', {'data-id':o.id, transform:tf({x:o.x, y:o.y, rot:crot}), style:'cursor:move'}, [
-        E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill, stroke:shade(fill, .62), 'stroke-width':.06}),
-        E('rect', {x:L/2 - 1.2, y:-A/2 + .16, width:.34, height:A - .32, rx:.12, fill:'rgba(0,0,0,.1)'}),
-        E('rect', {x:-L/2 + .22, y:-A/2 + .22, width:.22, height:A - .44, rx:.08, fill:'rgba(0,0,0,.12)'}),
-        isSold(o) ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:.42, fill:'url(#hatch)'}) : null,
+        E('g', {transform:`rotate(${-r0})`, 'pointer-events':'none'}, [E('rect', {x:-sw/2 + .05, y:-shh/2 + .18, width:sw - .1, height:shh, rx:R, fill:'#000', 'fill-opacity':.28, filter:'url(#g-blur)'})]),
+        E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:R, fill, 'fill-opacity':.9}),
+        E('g', {'clip-path':`url(#${clipId})`, 'pointer-events':'none'}, [E('g', {transform:`rotate(${-r0})`}, [
+          E('rect', {x:-sw/2, y:shh * .05, width:sw, height:shh * .45, fill:'url(#g-shade)'}),
+          E('rect', {x:-sw/2, y:-shh/2, width:sw, height:shh * .5, fill:'url(#g-sheen)'})
+        ])]),
+        isSold(o) ? E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:R, fill:'url(#hatch)'}) : null,
+        E('rect', {x:-L/2 + .06, y:-A/2 + .06, width:L - .12, height:A - .12, rx:Math.max(.1, R - .06), fill:'none', stroke:'#fff', 'stroke-opacity':.55, 'stroke-width':.05, 'pointer-events':'none'}),
+        E('rect', {x:-L/2, y:-A/2, width:L, height:A, rx:R, fill:'none', stroke:shade(fill, .55), 'stroke-opacity':.85, 'stroke-width':.045, 'pointer-events':'none'}),
         stripe ? E('path', {d:`M${-L/2 + .62} ${-A/2}H${-L/2 + .42}A.42 .42 0 0 0 ${-L/2} ${-A/2 + .42}V${A/2 - .42}A.42 .42 0 0 0 ${-L/2 + .42} ${A/2}H${-L/2 + .62}Z`, fill:stripe, stroke:shade(fill, .62), 'stroke-width':.04}) : null
       ]);
       const r = ((crot % 360) + 360) % 360, vert = Math.abs(Math.cos(rad(r))) < Math.SQRT1_2;
@@ -1216,9 +1229,9 @@ function renderPlan(opts = {}){
         const [txt, f] = fitText(String(x[0]), fs * x[1], x[2], x[3] || font, bw, .5);
         texts.push(T(0, cy, txt, {'font-size':r2(f * 100) / 100, 'font-weight':x[2], 'font-family':x[3] || font}));
       });
-      g.append(E('g', {transform:`translate(${sh} 0) rotate(${-r})`, fill:ink}, texts));
-      if (bad.has(o.id)) g.append(E('rect', {x:-L/2 - .08, y:-A/2 - .08, width:L + .16, height:A + .16, rx:.45, fill:'none', stroke:C.bad, 'stroke-width':.14, 'stroke-dasharray':'.35 .2'}));
-      if (selected) g.append(E('rect', {x:-L/2 - .12, y:-A/2 - .12, width:L + .24, height:A + .24, rx:.5, fill:'none', stroke:C.accent, 'stroke-width':.14}));
+      g.append(E('g', {transform:`translate(${sh} 0) rotate(${-r})`, fill:ink, ...(ink === '#ffffff' ? {stroke:'rgba(0,0,0,.3)', 'stroke-width':.045, 'paint-order':'stroke', 'stroke-linejoin':'round'} : {})}, texts));
+      if (bad.has(o.id)) g.append(E('rect', {x:-L/2 - .08, y:-A/2 - .08, width:L + .16, height:A + .16, rx:R + .08, fill:'none', stroke:C.bad, 'stroke-width':.14, 'stroke-dasharray':'.35 .2'}));
+      if (selected) g.append(E('rect', {x:-L/2 - .12, y:-A/2 - .12, width:L + .24, height:A + .24, rx:R + .12, fill:'none', stroke:C.accent, 'stroke-width':.14}));
       layers.car.append(g);
     } else if (o.kind === 'text') {
       const size = o.size || 1, w = Math.max(1, (o.label || '').length * size * .58);
