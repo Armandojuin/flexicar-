@@ -468,7 +468,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-26.3';
+const APP_VERSION = '2026-11-26.4';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -2313,21 +2313,28 @@ function openNewTab(){
   if (!canWrite) { mutate(() => {}); return; }
   const names = planes().map(p => p.name);
   const iN = mkInput('t-name', 'text', names.some(n => norm(n) === 'ideal') ? 'Exposición ' + (names.length + 1) : 'Ideal', {maxLength:30});
+  // de qué pestaña se copia: por defecto la primera («Expo real»), aunque tengas otra abierta
+  const iSrc = mkSelect('t-src', planes().map(p => ({v:p.id, n:p.name})), planes()[0].id);
   const ch = document.createElement('div'); ch.className = 'choices';
   const mk = (v, t, on) => { const l = document.createElement('label'); const r = document.createElement('input'); r.type = 'radio'; r.name = 't-base'; r.value = v; r.checked = on; l.append(r, t); return l; };
-  ch.append(mk('copy', `Copia de «${planName(activePlan)}»: mismas plazas y los coches donde están`, true), mk('layout', `Mismas plazas que «${planName(activePlan)}», con los coches sin colocar`, false), mk('empty', 'Vacía: sin plazas ni coches colocados', false));
-  modal('Nueva exposición', [P('Usa los mismos coches (si cambias un precio o un estado, cambia en todas), pero cada exposición tiene sus propias plazas y su colocación. Perfecta para preparar la exposición ideal sin tocar la real.'), mkField('Nombre', iN, true), ch], [btn('Cancelar', closeModal), btn('Crear', () => {
-    const name = iN.value.trim() || 'Exposición'; const base = document.querySelector('input[name="t-base"]:checked').value;
+  ch.append(mk('copy', 'Copia completa: mismas zonas, plazas y talleres, con los coches donde están', true), mk('layout', 'Mismas zonas, plazas y talleres, con los coches sin colocar', false), mk('empty', 'Vacía: sin plazas ni coches colocados', false));
+  const srcField = mkField('Copiar de', iSrc, true);
+  ch.addEventListener('change', () => { srcField.hidden = document.querySelector('input[name="t-base"]:checked').value === 'empty'; });
+  modal('Nueva exposición', [P('Usa los mismos coches (si cambias un precio o un estado, cambia en todas), pero cada exposición tiene sus propias plazas y su colocación. Perfecta para preparar la exposición ideal sin tocar la real.'), mkField('Nombre', iN, true), ch, srcField], [btn('Cancelar', closeModal), btn('Crear', () => {
+    const name = iN.value.trim() || 'Exposición'; const base = document.querySelector('input[name="t-base"]:checked').value, src = iSrc.value;
     const id = uid();
     mutate(() => {
       S.planes = [...planes(), {id, name}];
       if (base !== 'empty') {
-        const map = new Map();
-        for (const o of S.objs.filter(x => !isCar(x))) { const n = Object.assign(clone(o), {id:uid(), plan:id}); map.set(o.id, n.id); hidden.push(n); }
-        if (base === 'copy') for (const c of objs('car')) if (c.placed) setPos(c, id, {placed:true, x:c.x, y:c.y, rot:c.rot, spot:c.spot ? map.get(c.spot) || null : null});
+        const map = new Map(), copies = [];
+        for (const o of layoutOf(src)) { const n = Object.assign(clone(o), {id:uid(), plan:id}); map.set(o.id, n.id); copies.push(n); }
+        // las casillas siguen perteneciendo a su taller (ahora la copia del taller)
+        for (const n of copies) if (n.taller) n.taller = map.get(n.taller) || n.taller;
+        hidden.push(...copies);
+        if (base === 'copy') for (const c of objs('car')) { const q = getPos(c, src); if (q && q.placed) setPos(c, id, {placed:true, x:q.x, y:q.y, rot:q.rot || 0, spot:q.spot ? map.get(q.spot) || null : null}); }
       }
     });
-    closeModal(); switchPlan(id);
+    closeModal(); switchPlan(id); fit();
   }, 'primary')]);
   setTimeout(() => { iN.select(); }, 0);
 }
