@@ -468,7 +468,7 @@ kbd{font:600 11px/1 var(--font-ui);border:1px solid var(--line);border-bottom-wi
 const $ = s => document.querySelector(s);
 const NS = 'http://www.w3.org/2000/svg';
 const LS_KEY = 'plano-exposicion-v1';
-const APP_VERSION = '2026-11-26.4';
+const APP_VERSION = '2026-11-27.1';
 /* Web pública con plano común: los datos de Supabase van en config.js. Sin ellos, el plano se guarda en el navegador. */
 const NUBE = {url:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseUrl) || '', clave:(window.PLANO_CONFIG && window.PLANO_CONFIG.supabaseKey) || ''};
 const SUPABASE_JS = ['vendor/supabase.js', 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.97.0/dist/umd/supabase.js'];
@@ -1420,7 +1420,8 @@ function renderProps(){
       pos.append(actions(
         o.placed ? btn('Girar 90°', () => rotateSel(90)) : btn('Colocar en plaza libre', () => placeAuto([o.id]), 'primary'),
         o.placed ? btn('Retirar del plano', () => unplace([o.id])) : null,
-        o.placed ? btn('Centrar vista', () => focusOn([o.id])) : null
+        o.placed ? btn('Centrar vista', () => focusOn([o.id])) : null,
+        sp && !sp.taller ? btn(`＋ Plaza al final de la fila ${spotPrefix(sp.label)}`, () => addToRow(sp, 1)) : null
       ));
       P.append(pos);
       P.append(section('Borrar', actions(confirmBtn('Eliminar coche del stock', () => mutate(() => { S.objs = S.objs.filter(x => x.id !== o.id); sel.clear(); })))));
@@ -1428,6 +1429,7 @@ function renderProps(){
     } else if (o.kind === 'spot') {
       const c = carInSpot(o.id);
       const s = section('Plaza', grid(field(o, 'label', 'Nombre', 'text', {full:true}), field(o, 'w', 'Fondo (m)', 'number', {step:.1, min:1}), field(o, 'h', 'Ancho (m)', 'number', {step:.1, min:1}), field(o, 'rot', 'Giro (°)', 'number', {step:15})), kv('Ocupada por', c ? `${plate(c)} · ${carTitle(c)}` : 'Libre'));
+      if (!o.taller) P.append(rowAddControls(o));
       s.append(actions(btn(`Juntar la fila ${spotPrefix(o.label)} (quitar huecos)`, () => { resizeSpots(objs('spot').filter(x => spotPrefix(x.label) === spotPrefix(o.label)), 0, 0, true); toast('Fila alineada. Ctrl+Z lo deshace.'); })));
       s.append(actions(btn(`Seleccionar la fila ${spotPrefix(o.label)} entera`, () => selectRow(o), 'primary'), btn('Todas las plazas', () => { sel = new Set(objs('spot').map(x => x.id)); render(); })));
       s.append(actions(btn('Girar 90°', () => rotateSel(90)), btn('Duplicar', duplicateSel), c ? btn('Ver coche', () => { sel = new Set([c.id]); render(); }) : null, confirmBtn('Borrar plaza', deleteSel)));
@@ -1486,6 +1488,8 @@ function renderProps(){
       const keepL = document.createElement('label'); keepL.className = 'f check full'; const keep = document.createElement('input'); keep.type = 'checkbox'; keep.id = 'ms-keep'; keep.checked = true; keepL.append(keep, ' Recolocarlas para que no se monten ni queden huecos');
       const quick = actions(...[[2.5, 5], [2.8, 5.5], [3.2, 6]].map(([w, d]) => btn(`${nf.format(w)} × ${nf.format(d)} m`, () => { iW.value = w; iD.value = d; })));
       const hint = document.createElement('p'); hint.style.cssText = 'margin:0;font-size:12px;color:var(--muted)'; hint.textContent = 'Cuanto más grandes, más datos del coche se ven dentro. Arrastra cualquiera de ellas para moverlas todas a la vez.';
+      const pres = new Set(sps.filter(x => !x.taller).map(x => spotPrefix(x.label)));
+      if (pres.size === 1) P.append(rowAddControls(sps.find(x => !x.taller)));
       P.append(section('Separación', actions(btn('Juntar plazas (quitar huecos)', () => { resizeSpots(sps, 0, 0, true); toast('Plazas juntas y alineadas. Ctrl+Z lo deshace.'); }, 'primary'))));
       P.append(section(`Tamaño de las ${sps.length} plazas`, grid(mkField('Ancho (m)', iW), mkField('Fondo (m)', iD)), quick, keepL, actions(btn('Aplicar tamaño', () => {
         const w = +iW.value || 0, d = +iD.value || 0;
@@ -1536,6 +1540,48 @@ function selectRow(spot){
   const row = objs('spot').filter(x => spotPrefix(x.label) === pre);
   sel = new Set(row.map(x => x.id)); render();
   toast(`Fila ${pre} seleccionada (${row.length} plazas). Arrastra una para mover toda la fila.`);
+}
+// las plazas de una fila: misma letra, misma orientación y que no sean casillas de taller
+function rowOf(spot){
+  const pre = spotPrefix(spot.label), ro = ((Math.round(spot.rot || 0) % 180) + 180) % 180;
+  return objs('spot').filter(x => !x.taller && spotPrefix(x.label) === pre && ((Math.round(x.rot || 0) % 180) + 180) % 180 === ro)
+    .sort((a, b) => (+String(a.label).slice(pre.length) || 0) - (+String(b.label).slice(pre.length) || 0) || natural(a.label, b.label));
+}
+function addToRow(spot, n){
+  const row = rowOf(spot); if (!row.length) return;
+  const pre = spotPrefix(spot.label), last = row[row.length - 1], prev = row[row.length - 2];
+  // dirección de la fila: de la penúltima a la última plaza (o, si solo hay una, hacia un lado)
+  let dx, dy;
+  if (prev) { dx = last.x - prev.x; dy = last.y - prev.y; }
+  else { const [ax, ay] = rotP(0, -1, last.rot || 0); dx = ax * last.h; dy = ay * last.h; }
+  const num = Math.max(...row.map(x => +String(x.label).slice(pre.length) || 0));
+  const ids = [];
+  mutate(() => {
+    for (let i = 1; i <= n; i++) {
+      const sp = Object.assign(clone(last), {id:uid(), label:pre + (num + i), x:r2(last.x + dx * i), y:r2(last.y + dy * i)});
+      S.objs.push(sp); ids.push(sp.id);
+    }
+    sel = new Set([...row.map(x => x.id), ...ids]);
+  });
+  // ¿se monta sobre algo?
+  const nuevos = ids.map(byId), otros = S.objs.filter(o => (o.kind === 'spot' || (o.kind === 'zone' && o.tipo !== 'expo')) && !ids.includes(o.id) && !row.includes(o));
+  const choca = otros.filter(o => nuevos.some(nw => overlapOBB(nw, o)));
+  toast(`${n === 1 ? 'Plaza ' + pre + (num + 1) + ' añadida' : n + ' plazas añadidas (' + pre + (num + 1) + '–' + pre + (num + n) + ')'} al final de la fila ${pre}.` + (choca.length ? ` Ojo: se monta sobre ${choca[0].label || 'otra zona'}; mueve la fila si hace falta.` : ''));
+}
+function removeFromRow(spot){
+  const row = rowOf(spot), last = row[row.length - 1];
+  if (!last || row.length < 2) { toast('La fila tiene una sola plaza: bórrala desde su ficha si quieres quitarla.'); return; }
+  if (carInSpot(last.id)) { toast(`La plaza ${last.label} tiene un coche: muévelo antes de quitarla.`); return; }
+  mutate(() => { S.objs = S.objs.filter(o => o.id !== last.id); sel.delete(last.id); });
+  toast(`Plaza ${last.label} quitada.`);
+}
+function rowAddControls(spot){
+  const pre = spotPrefix(spot.label);
+  const iN = mkInput('row-add-n', 'number', 1, {min:1, max:50, step:1});
+  const g = grid(mkField('Plazas a añadir', iN));
+  return section(`Fila ${pre}: ${rowOf(spot).length} plazas`, g, actions(
+    btn(`＋ Añadir al final de la fila ${pre}`, () => addToRow(spot, Math.max(1, Math.min(50, +iN.value || 1))), 'primary'),
+    btn('Quitar la última', () => removeFromRow(spot))));
 }
 function resizeSpots(list, dep, wid, keep){
   mutate(() => {
